@@ -10701,3 +10701,412 @@ function quotationApp(){
 
 </body>
 </html>
+
+
+<!-- === API Overrides: switch from localStorage to Cloudflare Pages Functions + D1 === -->
+<script>
+(() => {
+  const USER = 'admin'; // TODO: replace with real user later
+
+  async function api(path, { method='GET', body, headers={} } = {}) {
+    const res = await fetch(path, {
+      method,
+      headers: Object.assign({'Content-Type':'application/json','x-user': USER}, headers),
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(()=>'');
+      throw new Error(`API ${method} ${path} failed: ${res.status} ${text}`);
+    }
+    return res.headers.get('content-type')?.includes('application/json')
+      ? res.json()
+      : res.text();
+  }
+
+  // ===== HR » Employee (D1: employees) =====
+  window.employeeApp = function employeeApp(){
+    return {
+      employees: [],
+      editingIndex: null,
+      search: "", filterPosition: "",
+      form: {
+        id: null,
+        employeeId:"", firstName:"", lastName:"",
+        nationalId:"", gender:"Male", phone:"", email:"",
+        department:"", position:"Doctor",
+        startDate:"", lastDate:"", dob:"",
+        salaryType:"Part-Time", salaryValue:0
+      },
+      salaryDisplay:"", salarySuffix:"THB/Hr",
+      get salaryPlaceholder(){ return this.form.salaryType==="Percentage" ? "0–100" : "จำนวนเงิน"; },
+
+      async init(){
+        await this.reload();
+        if(!this.form.employeeId){
+          const yy = new Date().getFullYear().toString().slice(-2);
+          const run = String(this.employees.length + 1).padStart(3,"0");
+          this.form.employeeId = `${yy}${run}`;
+        }
+        this._updateSuffix();
+      },
+      async reload(){ this.employees = await api('/api/employees'); },
+      _updateSuffix(){
+        this.salarySuffix = (this.form.salaryType==="Part-Time") ? "THB/Hr"
+          : (this.form.salaryType==="Full Time") ? "THB/Month"
+          : "%";
+      },
+      onRateInput(ev){
+        let v = (ev.target.value||"").replace(/,/g,"").trim();
+        if(this.form.salaryType==="Percentage"){
+          const num = Math.max(0, Math.min(100, parseFloat(v||"0")));
+          this.form.salaryValue = isNaN(num)?0:num/100;
+          this.salaryDisplay = String(Math.round(num*100)/100);
+        }else{
+          const num = parseFloat(v||"0");
+          this.form.salaryValue = isNaN(num)?0:num;
+          this.salaryDisplay = this.form.salaryValue.toLocaleString("en-US");
+        }
+      },
+      onRateBlur(){},
+
+      isNationalIdValid(id){
+        if(!id || id.length!==13) return false;
+        let sum=0; for(let i=0;i<12;i++) sum += parseInt(id[i],10)*(13-i);
+        let chk = (11 - (sum%11))%10; return chk === parseInt(id[12],10);
+      },
+      resetForm(){
+        this.editingIndex = null;
+        this.form = {
+          id:null, employeeId:"", firstName:"", lastName:"", nationalId:"",
+          gender:"Male", phone:"", email:"", department:"",
+          position:"Doctor", startDate:"", lastDate:"", dob:"",
+          salaryType:"Part-Time", salaryValue:0
+        };
+        this.salaryDisplay=""; this._updateSuffix();
+        const yy = new Date().getFullYear().toString().slice(-2);
+        const run = String(this.employees.length + 1).padStart(3,"0");
+        this.form.employeeId = `${yy}${run}`;
+      },
+      async save(){
+        const payload = { ...this.form };
+        if(this.editingIndex===null){
+          await api('/api/employees', { method:'POST', body: payload });
+        }else{
+          const row = this.employees[this.editingIndex];
+          await api(`/api/employees/${row.id}`, { method:'PUT', body: payload });
+        }
+        await this.reload();
+        this.resetForm();
+        alert('Saved.');
+      },
+      edit(i){
+        this.editingIndex = i;
+        this.form = JSON.parse(JSON.stringify(this.employees[i]));
+        if(this.form.salaryType==="Percentage"){
+          this.salaryDisplay = String((this.form.salaryValue||0)*100);
+        }else{
+          this.salaryDisplay = (this.form.salaryValue||0).toLocaleString("en-US");
+        }
+        this._updateSuffix();
+      },
+      async del(i){
+        if(!confirm("Delete?")) return;
+        const row = this.employees[i];
+        await api(`/api/employees/${row.id}`, { method:'DELETE' });
+        await this.reload();
+      },
+      filteredEmployees(){
+        const kw = (this.search||"").toLowerCase();
+        return this.employees.filter(e=>{
+          const okPos = !this.filterPosition || e.position===this.filterPosition;
+          if(!kw) return okPos;
+          const hay = [e.employeeId,e.firstName,e.lastName,e.department].join(" ").toLowerCase();
+          return okPos && hay.includes(kw);
+        });
+      },
+      displaySalary(emp){
+        if(!emp) return "-";
+        if(emp.salaryType==="Percentage") return `${Math.round((emp.salaryValue||0)*10000)/100}%`;
+        return (emp.salaryValue||0).toLocaleString("en-US");
+      },
+      statusFromLastDate(lastDate){
+        if(!lastDate) return "Active";
+        try{ return (new Date(lastDate) < new Date()) ? "Resigned" : "Active"; }catch(e){ return "Active"; }
+      }
+    };
+  };
+
+  // ===== HR » Attendance =====
+  window.attendanceApp = function attendanceApp(){
+    return {
+      employees: [],
+      records: [],
+      editingIndex: null,
+      showEmpList:false, empQuery:"",
+      filter:{ search:"", empId:"", position:"", leaveType:"", status:"", from:"", to:"" },
+      form:{ id:null, empId:"", fullName:"", position:"", date:"", checkIn:"", checkOut:"", leaveType:"", status:"Pending", note:"" },
+
+      async init(){
+        this.employees = await api('/api/employees');
+        await this.reload();
+      },
+      async reload(){ this.records = await api('/api/attendance'); },
+      empSuggestionList(){
+        const kw = (this.empQuery||"").toLowerCase();
+        if(!kw) return this.employees.slice(0,10);
+        return this.employees.filter(e => (`${e.employeeId} ${e.firstName} ${e.lastName} ${e.position||""}`).toLowerCase().includes(kw)).slice(0,20);
+      },
+      selectEmp(e){
+        this.form.empId = e.employeeId;
+        this.form.fullName = `${e.firstName} ${e.lastName}`;
+        this.form.position = e.position||"";
+        this.showEmpList = false;
+        this.empQuery = `${e.employeeId} — ${this.form.fullName}`;
+      },
+      clearEmp(){ this.form.empId=""; this.form.fullName=""; this.form.position=""; this.empQuery=""; },
+      resetForm(){ this.editingIndex=null; this.form = { id:null, empId:"", fullName:"", position:"", date:"", checkIn:"", checkOut:"", leaveType:"", status:"Pending", note:"" }; },
+      async save(){
+        const payload = { ...this.form };
+        if(this.editingIndex===null){
+          await api('/api/attendance', { method:'POST', body: payload });
+        }else{
+          const row = this.records[this.editingIndex];
+          await api(`/api/attendance/${row.id}`, { method:'PUT', body: payload });
+        }
+        await this.reload(); this.resetForm(); alert("Saved.");
+      },
+      edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.records[i])); this.empQuery = `${this.form.empId} — ${this.form.fullName}`; },
+      async remove(i){ if(!confirm("Delete?")) return; const row=this.records[i]; await api(`/api/attendance/${row.id}`, { method:'DELETE' }); await this.reload(); },
+      filteredRecords(){
+        const f = this.filter;
+        const inRange = (d) => {
+          if(!d) return true;
+          const x = new Date(d);
+          if(f.from && new Date(f.from) > x) return false;
+          if(f.to && new Date(f.to)   < x) return false;
+          return true;
+        };
+        return this.records.filter(r => {
+          if(f.empId && r.empId!==f.empId) return false;
+          if(f.position && (r.position||"")!==f.position) return false;
+          if(f.leaveType && (r.leaveType||"")!==f.leaveType) return false;
+          if(f.status && (r.status||"")!==f.status) return false;
+          if(f.search){
+            const hay = `${r.empId} ${r.fullName} ${r.note}`.toLowerCase();
+            if(!hay.includes(f.search.toLowerCase())) return false;
+          }
+          return inRange(r.date);
+        });
+      },
+      exportCSV(){
+        const rows = [["Emp ID","Full Name","Position","Date","Check-in","Check-out","Status","Leave Type","Note"]]
+          .concat(this.filteredRecords().map(r=>[r.empId,r.fullName,r.position||"",r.date,r.checkIn||"",r.checkOut||"",r.status||"",r.leaveType||"",r.note||""]));
+        const csv = rows.map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
+        const blob = new Blob([csv],{type:"text/csv"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = "attendance.csv"; a.click();
+        URL.revokeObjectURL(url);
+      },
+      displayTime(t){ return t||""; },
+      displayHoursByAt(inAt, outAt){
+        if(!inAt || !outAt) return "0";
+        try{
+          const a = new Date(`1970-01-01T${inAt}:00`);
+          const b = new Date(`1970-01-01T${outAt}:00`);
+          return ((b-a)/(1000*60*60)).toFixed(2);
+        }catch(e){ return "0"; }
+      },
+      sumHoursFiltered(){
+        return this.filteredRecords().reduce((acc,r)=>acc+parseFloat(this.displayHoursByAt(r.checkIn,r.checkOut)||0),0).toFixed(2);
+      }
+    };
+  };
+
+  // ===== HR » Timeclock =====
+  window.timeClockApp = function timeClockApp(){
+    return {
+      employees: [],
+      records: [],
+      liveNow: "",
+      form:{ empId:"", date:"", geo:"", note:"" },
+      statusToday:{ in:"", out:"", totalHrs:"0.00" },
+      filter:{ emp:"", from:"", to:"" },
+
+      async init(){
+        this.employees = await api('/api/employees');
+        await this.reload();
+        this._tick();
+        setInterval(()=>this._tick(), 1000);
+      },
+      async reload(){ this.records = await api('/api/timeclock'); },
+      _tick(){ const d=new Date(); this.liveNow = d.toLocaleString(); },
+      refreshStatus(){
+        const day = this.form.date;
+        const recs = this.records.filter(r=> r.empId===this.form.empId && r.date===day);
+        const recIn  = recs.find(r=> !!r.inAt);
+        const recOut = recs.find(r=> !!r.outAt);
+        this.statusToday.in  = recIn ? recIn.inAt : "";
+        this.statusToday.out = recOut? recOut.outAt: "";
+        const h = this.displayHoursByAt(this.statusToday.in, this.statusToday.out);
+        this.statusToday.totalHrs = h;
+      },
+      grabGeo(){
+        if(!navigator.geolocation){ this.form.geo = ""; return; }
+        navigator.geolocation.getCurrentPosition((pos)=>{
+          const {latitude, longitude} = pos.coords;
+          this.form.geo = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
+        }, ()=>{ this.form.geo = ""; });
+      },
+      async clockIn(){
+        if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
+        const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
+        const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:`${hh}:${mm}`, outAt:"", note:this.form.note||"", geo:this.form.geo||"" };
+        await api('/api/timeclock', { method:'POST', body: payload });
+        await this.reload(); this.refreshStatus();
+      },
+      async clockOut(){
+        if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
+        const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
+        const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:"", outAt:`${hh}:${mm}`, note:this.form.note||"", geo:this.form.geo||"" };
+        await api('/api/timeclock', { method:'POST', body: payload });
+        await this.reload(); this.refreshStatus();
+      },
+      resetForm(){ this.form={ empId:"", date:"", geo:"", note:"" }; this.statusToday={ in:"", out:"", totalHrs:"0.00" }; },
+      filtered(){
+        const f=this.filter;
+        const inRange = d=>{
+          if(!d) return true; const x = new Date(d);
+          if(f.from && new Date(f.from)>x) return false;
+          if(f.to && new Date(f.to)<x) return false;
+          return true;
+        };
+        return this.records.filter(r=>{
+          if(f.emp && r.empId!==f.emp) return false;
+          return inRange(r.date);
+        });
+      },
+      displayTime(t){ return t||""; },
+      displayHoursByAt(inAt,outAt){
+        if(!inAt || !outAt) return "0.00";
+        try{
+          const a = new Date(`1970-01-01T${inAt}:00`);
+          const b = new Date(`1970-01-01T${outAt}:00`);
+          return ((b-a)/(1000*60*60)).toFixed(2);
+        }catch(e){ return "0.00"; }
+      }
+    };
+  };
+
+  // ===== Sales » Customer =====
+  window.customerApp = function customerApp(){
+    return {
+      provinces: [], amphures: [], tambons: [],
+      addr: { provinceId:"", amphureId:"", tambonId:"" },
+      customers: [], editingIndex: null,
+      searchQuery:"", showSug:false, searchSuggestions:[],
+      filter:{ keyword:"", provinceId:"" },
+      diseaseOptions:["เบาหวาน","ความดัน","หัวใจ","หอบหืด","ไต","ตับ"],
+      allergyOptions:["ยาแก้แพ้","เพนิซิลลิน","ซีฟาโลสปอริน","NSAIDs","อาหารทะเล","ถั่ว"],
+
+      form:{
+        id:null, code:"", firstName:"", lastName:"", nationalId:"",
+        gender:"", birthday:"", age:"", phone:"", email:"",
+        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
+        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      },
+
+      async init(){ await this.reload(); this._genCode(); },
+      async reload(){ this.customers = await api('/api/customers'); },
+      _genCode(){ if(!this.form.code){ const run = String((this.customers?.length||0)+1).padStart(6,"0"); this.form.code = `C${run}`; } },
+      onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes((this.searchQuery||"").toLowerCase())).slice(0,20); },
+      pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
+      onProvinceChange(){}, onAmphureChange(){}, applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
+
+      updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
+      canSave(){ return !!(this.form.firstName && this.form.lastName); },
+      resetForm(){
+        this.editingIndex = null;
+        this.form = { id:null, code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
+          addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
+          medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+        };
+        this._genCode();
+      },
+      async save(){
+        const payload = { ...this.form };
+        payload.addr = JSON.stringify(payload.addr||{});
+        payload.medical = JSON.stringify(payload.medical||{});
+        if(this.editingIndex===null){
+          await api('/api/customers', { method:'POST', body: payload });
+        }else{
+          const row = this.customers[this.editingIndex];
+          await api(`/api/customers/${row.id}`, { method:'PUT', body: payload });
+        }
+        await this.reload(); this.resetForm(); alert("Saved.");
+      },
+      edit(i){
+        this.editingIndex=i;
+        const raw = this.customers[i];
+        const c = JSON.parse(JSON.stringify(raw));
+        try{ c.addr = c.addr ? JSON.parse(c.addr) : {}; }catch(e){ c.addr={}; }
+        try{ c.medical = c.medical ? JSON.parse(c.medical) : {}; }catch(e){ c.medical={ diseases:[], allergies:[] }; }
+        this.form = c;
+      },
+      async remove(i){ if(!confirm('Delete?')) return; const row=this.customers[i]; await api(`/api/customers/${row.id}`, { method:'DELETE' }); await this.reload(); },
+      filteredCustomers(){
+        const kw = (this.filter.keyword||"").toLowerCase();
+        return this.customers.filter(c=>{
+          const okProv = !this.filter.provinceId || (c.addr && (JSON.parse(c.addr).provinceId===this.filter.provinceId));
+          if(!kw) return okProv;
+          const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
+          return okProv && hay.includes(kw);
+        });
+      }
+    };
+  };
+
+  // ===== Sales » Quotation =====
+  window.quotationApp = function quotationApp(){
+    return {
+      quotes: [], editingIndex:null, showSug:false, customerSug:[], customerSearch:"",
+      form:{ id:null, qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" }, items:[], note:"", confirmed:false },
+
+      async init(){ await this.reload(); this.previewQuotationNo(); },
+      async reload(){ this.quotes = await api('/api/quotes'); },
+      previewQuotationNo(){
+        const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
+        const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+        const run = String((this.quotes||[]).length + 1).padStart(3,"0");
+        this.form.qNo = `Q${ymd}-${run}`;
+      },
+      locked(){ return !!this.form.confirmed; },
+      onCustomerSearch(){
+        this.showSug = !!this.customerSearch;
+        api('/api/customers').then(list=>{
+          const kw = (this.customerSearch||"").toLowerCase();
+          this.customerSug = list.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(kw)).slice(0,20);
+        });
+      },
+      pickCustomer(c){
+        this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
+        this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`; this.showSug = false;
+      },
+      canConfirm(){ return this.form.qNo && this.form.customer.code; },
+      confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed."); },
+      resetForm(){ this.editingIndex=null; this.form={ id:null, qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
+      async save(){
+        const payload = { ...this.form };
+        payload.customer = JSON.stringify(payload.customer||{});
+        payload.items = JSON.stringify(payload.items||[]);
+        if(this.editingIndex===null){
+          await api('/api/quotes', { method:'POST', body: payload });
+        }else{
+          const row = this.quotes[this.editingIndex];
+          await api(`/api/quotes/${row.id}`, { method:'PUT', body: payload });
+        }
+        await this.reload(); alert("Saved.");
+      }
+    };
+  };
+})();
+</script>
