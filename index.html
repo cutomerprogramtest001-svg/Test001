@@ -20,31 +20,31 @@
             <div class="mt-2 border-t pt-2 space-y-1 text-sm">
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'employee' }"
-                      @click="open = 'employee'">👥 พนักงาน</button>
+                      @click="open = 'employee'"> </button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'payroll' }"
-                      @click="open = 'payroll'">💵 เงินเดือน</button>
+                      @click="open = 'payroll'">เงินเดือน</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'attendance' }"
-                      @click="open = 'attendance'">🕒 ขาด/ลา/มาสาย</button>
+                      @click="open = 'attendance'">ขาด/ลา/มาสาย</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'timeclock' }"
-                      @click="open = 'timeclock'">⏱ Clock In / Out</button>
+                      @click="open = 'timeclock'">Clock In / Out</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'performance' }"
-                      @click="open = 'performance'">📊 การประเมิน</button>
+                      @click="open = 'performance'">การประเมิน</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'recruitment' }"
-                      @click="open = 'recruitment'">📤 สรรหา</button>
+                      @click="open = 'recruitment'">สรรหา</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'dashboard' }"
-                      @click="open = 'dashboard'">📈 Dashboard</button>
+                      @click="open = 'dashboard'">Dashboard</button>
             </div>
           </template>
 
@@ -55,27 +55,27 @@
             <div class="mt-2 border-t pt-2 space-y-1 text-sm">
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'customer' }"
-                      @click="open = 'customer'">🧑‍⚕️ Customer Profile</button>
+                      @click="open = 'customer'">Customer Profile</button>
                       
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'quotation' }"
-                      @click="open = 'quotation'">📝 Quotation & Package Selection</button>
+                      @click="open = 'quotation'">Quotation & Package Selection</button>
                       
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'saleorder' }"
-                      @click="open = 'saleorder'">📦 Sale Order</button>
+                      @click="open = 'saleorder'">Sale Order</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'contact' }"
-                      @click="open = 'contact'">📞 Contact & Follow-up Log</button>
+                      @click="open = 'contact'">Contact & Follow-up Log</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'appointment' }"
-                      @click="open = 'appointment'">📆 Appointment & Scheduling</button>
+                      @click="open = 'appointment'">Appointment & Scheduling</button>
 
               <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
                       :class="{ 'bg-gray-200': open === 'performance' }"
-                      @click="open = 'performance'">📊 Sales Performance & Conversion</button>
+                      @click="open = 'performance'">Sales Performance & Conversion</button>
             </div>
           </template>
 <button class="w-full text-left px-3 py-2 rounded hover:bg-blue-100"
@@ -86,34 +86,34 @@
   <div class="mt-2 border-t pt-2 space-y-1 text-sm">
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'pr' }"
-            @click="open = 'pr'">📝 Purchase Requisition</button>
+            @click="open = 'pr'">Purchase Requisition</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'rfq' }"
-            @click="open = 'rfq'">📨 Request for Quotation</button>
+            @click="open = 'rfq'">Request for Quotation</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'po' }"
-            @click="open = 'po'">🧾 Purchase Order</button>
+            @click="open = 'po'">Purchase Order</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'grn' }"
-            @click="open = 'grn'">📥 Goods Received Note</button>
+            @click="open = 'grn'">Goods Received Note</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'supplier' }"
-            @click="open = 'supplier'">🏷️ Supplier Management</button>
+            @click="open = 'supplier'">Supplier Management</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'invoice' }"
-            @click="open = 'invoice'">📄 Invoice Verification</button>
+            @click="open = 'invoice'">Invoice Verification</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'reporting' }"
-            @click="open = 'reporting'">📊 Reporting</button>
+            @click="open = 'reporting'">Reporting</button>
     <button class="w-full text-left px-3 py-1 hover:bg-gray-100 rounded"
             :class="{ 'bg-gray-200': open === 'audit' }"
-            @click="open = 'audit'">🕵️ Audit Trail</button>
+            @click="open = 'audit'">Audit Trail</button>
   </div>
 </template>
 
     <button class="w-full text-left px-3 py-2 rounded hover:bg-blue-100"
             :class="{ 'bg-blue-200': mainTab === 'inventory' }"
-            @click="mainTab = 'inventory'">📦 Inventory Module</button>
+            @click="mainTab = 'inventory'">Inventory Module</button>
 
     <!-- Inventory Submenu -->
     <template x-if="mainTab === 'inventory'">
