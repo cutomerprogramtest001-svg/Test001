@@ -10749,7 +10749,7 @@ function quotationApp(){
         }
         this._updateSuffix();
       },
-      async reload(){ this.employees = await api('/api/employees'); },
+      async reload(){ this.employees = await api('/api/hr/employees'); },
       _updateSuffix(){
         this.salarySuffix = (this.form.salaryType==="Part-Time") ? "THB/Hr"
           : (this.form.salaryType==="Full Time") ? "THB/Month"
@@ -10790,10 +10790,10 @@ function quotationApp(){
       async save(){
         const payload = { ...this.form };
         if(this.editingIndex===null){
-          await api('/api/employees', { method:'POST', body: payload });
+          await api('/api/hr/employees', { method:'POST', body: payload });
         }else{
           const row = this.employees[this.editingIndex];
-          await api(`/api/employees/${row.id}`, { method:'PUT', body: payload });
+          await api(`/api/hr/employees/${row.id}`, { method:'PUT', body: payload });
         }
         await this.reload();
         this.resetForm();
@@ -10812,7 +10812,7 @@ function quotationApp(){
       async del(i){
         if(!confirm("Delete?")) return;
         const row = this.employees[i];
-        await api(`/api/employees/${row.id}`, { method:'DELETE' });
+        await api(`/api/hr/employees/${row.id}`, { method:'DELETE' });
         await this.reload();
       },
       filteredEmployees(){
@@ -10847,7 +10847,7 @@ function quotationApp(){
       form:{ id:null, empId:"", fullName:"", position:"", date:"", checkIn:"", checkOut:"", leaveType:"", status:"Pending", note:"" },
 
       async init(){
-        this.employees = await api('/api/employees');
+        this.employees = await api('/api/hr/employees');
         await this.reload();
       },
       async reload(){ this.records = await api('/api/attendance'); },
@@ -10933,7 +10933,7 @@ function quotationApp(){
       filter:{ emp:"", from:"", to:"" },
 
       async init(){
-        this.employees = await api('/api/employees');
+        this.employees = await api('/api/hr/employees');
         await this.reload();
         this._tick();
         setInterval(()=>this._tick(), 1000);
