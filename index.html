@@ -10923,79 +10923,148 @@ function quotationApp(){
   };
 
   // ===== HR » Timeclock =====
+(() => {
+  const USER = 'admin'; // ใช้เหมือนเดิม
+  async function api(path, { method='GET', body, headers={} } = {}) {
+    const res = await fetch(path, {
+      method,
+      headers: Object.assign({'Content-Type':'application/json','x-user': USER}, headers),
+      body: body ? JSON.stringify(body) : undefined
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(()=> '');
+      throw new Error(`API ${method} ${path} failed: ${res.status} ${text}`);
+    }
+    return res.headers.get('content-type')?.includes('application/json') ? res.json() : res.text();
+  }
+
+  // --- utils (ฝั่ง UI) ---
+  const pad2 = n => String(n).padStart(2,'0');
+  const toYMDLocal = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const fmtLocalDT = iso => { if(!iso) return ''; const d = new Date(iso); return isNaN(d)? '' : d.toLocaleString('th-TH',{hour12:false,dateStyle:'short',timeStyle:'medium'}) };
+  const hoursDiff = (inISO,outISO) => { if(!inISO||!outISO) return 0; const a=new Date(inISO), b=new Date(outISO); if(isNaN(a)||isNaN(b)) return 0; const ms=b-a; return ms<=0?0:+(ms/3600000).toFixed(2); };
+
+  // --- TimeClock (D1 backed) ---
   window.timeClockApp = function timeClockApp(){
     return {
+      liveNow: '',
       employees: [],
       records: [],
-      liveNow: "",
-      form:{ empId:"", date:"", geo:"", note:"" },
-      statusToday:{ in:"", out:"", totalHrs:"0.00" },
-      filter:{ emp:"", from:"", to:"" },
+      // >>> สำคัญ: ตัวนี้ผูกกับ :disabled ในปุ่ม
+      canClockIn: false,
+      canClockOut: false,
+
+      form: {
+        empId: '',
+        date: toYMDLocal(new Date()),  // ให้มีค่าเริ่มต้น
+        geo: '',
+        note: ''
+      },
+      filter: { emp:'', from:'', to:'' },
+      statusToday: { in:'—', out:'—', totalHrs:'0.00' },
 
       async init(){
-        this.employees = await api('/api/hr/employees');
+        try { this.employees = await api('/api/hr/employees'); } catch(e){ console.error(e); this.employees = []; }
         await this.reload();
-        this._tick();
-        setInterval(()=>this._tick(), 1000);
+        this.refreshStatus();
+        this._tick(); setInterval(()=>this._tick(), 1000);
       },
-      async reload(){ this.records = await api('/api/hr/timeclock'); },
-      _tick(){ const d=new Date(); this.liveNow = d.toLocaleString(); },
-      refreshStatus(){
-        const day = this.form.date;
-        const recs = this.records.filter(r=> r.empId===this.form.empId && r.date===day);
-        const recIn  = recs.find(r=> !!r.inAt);
-        const recOut = recs.find(r=> !!r.outAt);
-        this.statusToday.in  = recIn ? recIn.inAt : "";
-        this.statusToday.out = recOut? recOut.outAt: "";
-        const h = this.displayHoursByAt(this.statusToday.in, this.statusToday.out);
-        this.statusToday.totalHrs = h;
+      _tick(){ this.liveNow = fmtLocalDT(new Date().toISOString()); },
+
+      async reload(){
+        // ดึงช่วง 60 วันย้อนหลัง (หรือใช้ตัวกรองหากกรอก)
+        const sel = this.form.date || toYMDLocal(new Date());
+        const to  = this.filter.to   || sel;
+        let   from= this.filter.from || (()=>{ const d=new Date(sel+'T00:00:00'); d.setDate(d.getDate()-60); return toYMDLocal(d); })();
+        const qs = new URLSearchParams({ from, to });
+        if (this.filter.emp) qs.set('emp', this.filter.emp);
+
+        const res = await api(`/api/hr/timeclock?${qs.toString()}`);
+        const rows = res.data || res; // เผื่อกรณี API คืนเป็น array ตรงๆ
+        // ผูกชื่อพนักงานไว้เพื่อแสดงผลในตาราง
+        this.records = (rows||[]).map(r => ({
+          ...r,
+          empName: (() => {
+            const e = this.employees.find(x => x.employeeId === r.empId);
+            return e ? `${e.firstName||''} ${e.lastName||''}`.trim() : r.empId;
+          })()
+        }));
       },
-      grabGeo(){
-        if(!navigator.geolocation){ this.form.geo = ""; return; }
-        navigator.geolocation.getCurrentPosition((pos)=>{
-          const {latitude, longitude} = pos.coords;
-          this.form.geo = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
-        }, ()=>{ this.form.geo = ""; });
+
+      latestOpenToday(empId){
+        const ymd = this.form.date || toYMDLocal(new Date());
+        return this.records
+          .filter(r => r.empId===empId && r.date===ymd && !r.outAt)
+          .sort((a,b)=> (a.inAt>b.inAt?1:-1))
+          .pop() || null;
       },
-      async clockIn(){
-        if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
-        const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
-        const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:`${hh}:${mm}`, outAt:"", note:this.form.note||"", geo:this.form.geo||"" };
-        await api('/api/hr/timeclock', { method:'POST', body: payload });
-        await this.reload(); this.refreshStatus();
-      },
-      async clockOut(){
-        if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
-        const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
-        const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:"", outAt:`${hh}:${mm}`, note:this.form.note||"", geo:this.form.geo||"" };
-        await api('/api/hr/timeclock', { method:'POST', body: payload });
-        await this.reload(); this.refreshStatus();
-      },
-      resetForm(){ this.form={ empId:"", date:"", geo:"", note:"" }; this.statusToday={ in:"", out:"", totalHrs:"0.00" }; },
-      filtered(){
-        const f=this.filter;
-        const inRange = d=>{
-          if(!d) return true; const x = new Date(d);
-          if(f.from && new Date(f.from)>x) return false;
-          if(f.to && new Date(f.to)<x) return false;
-          return true;
+
+      async refreshStatus(){
+        const open = this.form.empId ? this.latestOpenToday(this.form.empId) : null;
+        this.canClockIn  = !!this.form.empId && !open;
+        this.canClockOut = !!this.form.empId && !!open;
+
+        const ymd = this.form.date || toYMDLocal(new Date());
+        const recs = this.records
+          .filter(r => r.empId===this.form.empId && r.date===ymd)
+          .sort((a,b)=> (a.inAt>b.inAt?1:-1));
+        const rec = recs.length ? recs[recs.length-1] : null;
+
+        this.statusToday = {
+          in:  rec?.inAt  ? fmtLocalDT(rec.inAt)  : '—',
+          out: rec?.outAt ? fmtLocalDT(rec.outAt) : '—',
+          totalHrs: (rec ? hoursDiff(rec.inAt, rec.outAt) : 0).toFixed(2)
         };
-        return this.records.filter(r=>{
-          if(f.emp && r.empId!==f.emp) return false;
-          return inRange(r.date);
-        });
       },
-      displayTime(t){ return t||""; },
-      displayHoursByAt(inAt,outAt){
-        if(!inAt || !outAt) return "0.00";
-        try{
-          const a = new Date(`1970-01-01T${inAt}:00`);
-          const b = new Date(`1970-01-01T${outAt}:00`);
-          return ((b-a)/(1000*60*60)).toFixed(2);
-        }catch(e){ return "0.00"; }
-      }
+
+      async clockIn(){
+        if (!this.form.empId) { alert('กรุณาเลือกพนักงาน'); return; }
+        if (!this.canClockIn) { alert('มีรายการที่ยังไม่ Clock Out ในวันนี้แล้ว'); return; }
+        await api('/api/hr/timeclock', { method:'POST', body:{ empId:this.form.empId, note:this.form.note||'', geo:this.form.geo||'' } });
+        await this.reload(); this.refreshStatus();
+      },
+
+      async clockOut(){
+        if (!this.form.empId) { alert('กรุณาเลือกพนักงาน'); return; }
+        if (!this.canClockOut) { alert('ยังไม่มีรายการ Clock In วันนี้'); return; }
+
+        const ymd = this.form.date || toYMDLocal(new Date());
+        const today = await api(`/api/hr/timeclock?emp=${encodeURIComponent(this.form.empId)}&from=${ymd}&to=${ymd}`);
+        const open = (today.data || today).find(r => !r.outAt);
+        if (!open) { alert('ไม่พบรายการที่ต้อง Clock Out'); return; }
+
+        await api(`/api/hr/timeclock/${open.id}`, { method:'PUT', body:{ outAt: new Date().toISOString() } });
+        await this.reload(); this.refreshStatus();
+      },
+
+      async remove(i){
+        const rec = this.filtered()[i];
+        if (!rec) return;
+        if (!confirm('Delete?')) return;
+        await api(`/api/hr/timeclock/${rec.id}`, { method:'DELETE' });
+        await this.reload(); this.refreshStatus();
+      },
+
+      filtered(){
+        const emp  = this.filter.emp;
+        const from = this.filter.from ? new Date(this.filter.from) : null;
+        const to   = this.filter.to   ? new Date(this.filter.to)   : null;
+        return this.records.filter(r=>{
+          const okEmp  = !emp || r.empId===emp;
+          const d = new Date(r.date+'T00:00:00');
+          const okFrom = !from || d >= from;
+          const okTo   = !to   || d <= to;
+          return okEmp && okFrom && okTo;
+        }).sort((a,b)=> (a.date===b.date ? (a.inAt>b.inAt?1:-1) : (a.date>b.date?1:-1)));
+      },
+
+      displayTime(iso){ return fmtLocalDT(iso) || '—'; },
+      displayHoursByAt(inAt,outAt){ return hoursDiff(inAt,outAt).toFixed(2); },
+      sumHoursFiltered(){ return this.filtered().reduce((acc,r)=> acc + hoursDiff(r.inAt, r.outAt), 0).toFixed(2); },
+      resetForm(){ this.form.note=''; this.form.geo=''; }
     };
   };
+})();
 
   // ===== Sales » Customer =====
   window.customerApp = function customerApp(){
