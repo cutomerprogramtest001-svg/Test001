@@ -10850,7 +10850,7 @@ function quotationApp(){
         this.employees = await api('/api/hr/employees');
         await this.reload();
       },
-      async reload(){ this.records = await api('/api/attendance'); },
+      async reload(){ this.records = await api('/api/hr/attendance'); },
       empSuggestionList(){
         const kw = (this.empQuery||"").toLowerCase();
         if(!kw) return this.employees.slice(0,10);
