@@ -10868,15 +10868,15 @@ function quotationApp(){
       async save(){
         const payload = { ...this.form };
         if(this.editingIndex===null){
-          await api('/api/attendance', { method:'POST', body: payload });
+          await api('/api/hr/attendance', { method:'POST', body: payload });
         }else{
           const row = this.records[this.editingIndex];
-          await api(`/api/attendance/${row.id}`, { method:'PUT', body: payload });
+          await api(`/api/hr/attendance/${row.id}`, { method:'PUT', body: payload });
         }
         await this.reload(); this.resetForm(); alert("Saved.");
       },
       edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.records[i])); this.empQuery = `${this.form.empId} — ${this.form.fullName}`; },
-      async remove(i){ if(!confirm("Delete?")) return; const row=this.records[i]; await api(`/api/attendance/${row.id}`, { method:'DELETE' }); await this.reload(); },
+      async remove(i){ if(!confirm("Delete?")) return; const row=this.records[i]; await api(`/api/hr/attendance/${row.id}`, { method:'DELETE' }); await this.reload(); },
       filteredRecords(){
         const f = this.filter;
         const inRange = (d) => {
@@ -10938,7 +10938,7 @@ function quotationApp(){
         this._tick();
         setInterval(()=>this._tick(), 1000);
       },
-      async reload(){ this.records = await api('/api/timeclock'); },
+      async reload(){ this.records = await api('/api/hr/timeclock'); },
       _tick(){ const d=new Date(); this.liveNow = d.toLocaleString(); },
       refreshStatus(){
         const day = this.form.date;
@@ -10961,14 +10961,14 @@ function quotationApp(){
         if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
         const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
         const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:`${hh}:${mm}`, outAt:"", note:this.form.note||"", geo:this.form.geo||"" };
-        await api('/api/timeclock', { method:'POST', body: payload });
+        await api('/api/hr/timeclock', { method:'POST', body: payload });
         await this.reload(); this.refreshStatus();
       },
       async clockOut(){
         if(!this.form.empId){ alert("กรุณาเลือกพนักงาน"); return; }
         const now = new Date(); const hh = String(now.getHours()).padStart(2,"0"); const mm = String(now.getMinutes()).padStart(2,"0");
         const payload = { empId:this.form.empId, empName:(this.employees.find(e=>e.employeeId===this.form.empId)?.firstName||"")+" "+(this.employees.find(e=>e.employeeId===this.form.empId)?.lastName||""), date:this.form.date || now.toISOString().slice(0,10), inAt:"", outAt:`${hh}:${mm}`, note:this.form.note||"", geo:this.form.geo||"" };
-        await api('/api/timeclock', { method:'POST', body: payload });
+        await api('/api/hr/timeclock', { method:'POST', body: payload });
         await this.reload(); this.refreshStatus();
       },
       resetForm(){ this.form={ empId:"", date:"", geo:"", note:"" }; this.statusToday={ in:"", out:"", totalHrs:"0.00" }; },
