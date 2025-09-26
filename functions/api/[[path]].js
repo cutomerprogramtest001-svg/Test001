@@ -6,7 +6,19 @@ export const onRequest = async (ctx) => {
   if (!url.pathname.startsWith('/api')) {
     return json({ error: 'Not found' }, 404);
   }
-
+ // --- Global CORS preflight for ALL /api routes ---
+  if (request.method === 'OPTIONS') {
+    const origin = request.headers.get('Origin') || '*';
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-User',
+        'Access-Control-Allow-Credentials': 'true'
+      }
+    });
+  } 
   const path = url.pathname.replace(/^\/api\/?/, '').trim(); // strip /api/
     // ========== [HR Attendance & TimeClock] — drop-in router (append-safe) ==========
   // ใช้เมื่อคุณไม่อยากแก้โครงไฟล์เดิมมาก: แค่ "เรียก" hrRouter() ใน onRequest เดิมก็พอ
@@ -433,11 +445,17 @@ export const onRequest = async (ctx) => {
 };
 
 // ---------- helpers ----------
-const json = (data, status = 200) =>
-  new Response(typeof data === 'string' ? data : JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' }
-  });
+  const json = (data, status = 200) =>
+    new Response(typeof data === 'string' ? data : JSON.stringify(data), {
+      status,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-User',
+        'Access-Control-Allow-Credentials': 'true'
+      }
+    });
 
 const isNumeric = (s) => /^\d+$/.test(String(s || ''));
 
