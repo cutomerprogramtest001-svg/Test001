@@ -416,35 +416,70 @@
 </form>
 </div>
 <!-- Attendance -->
+<div x-show="mainTab === 'hr' && open === 'attendance'"
+     x-data="attendanceApp()"
+     x-init="init()"
+     x-cloak
+     class="space-y-6">
 
-<div class="bg-white p-6 rounded-lg shadow mt-6 space-y-4">
-  <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-    <!-- Filters -->
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 w-full md:w-auto">
+  <!-- การ์ด: ฟอร์มบันทึกเวลา/ลา -->
+  <div class="bg-white p-6 rounded-lg shadow space-y-4">
+    <h2 class="text-xl font-bold">🕒 Time Attendance & Leave</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <!-- เลือกพนักงาน -->
+      <div class="md:col-span-2">
+        <label class="block text-sm font-medium">พนักงาน</label>
+        <div class="relative">
+          <input class="mt-1 w-full border px-3 py-2 rounded"
+                 type="text"
+                 placeholder="พิมพ์ชื่อ/นามสกุล/Emp ID เพื่อค้นหา"
+                 x-model.trim="empQuery"
+                 @focus="showEmpList = true"
+                 @keydown.escape="showEmpList = false"
+                 @input.debounce.250ms="showEmpList = true">
+          <ul class="absolute z-20 w-full bg-white border rounded mt-1 max-h-56 overflow-auto shadow"
+              x-show="showEmpList"
+              @click.outside="showEmpList = false">
+            <template x-for="e in empSuggestionList()" :key="'opt-'+e.employeeId">
+              <li class="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm"
+                  @click="selectEmp(e)"
+                  x-text="`${e.employeeId} — ${e.firstName} ${e.lastName} (${e.position||'-'})`"></li>
+            </template>
+            <li class="px-3 py-2 text-gray-500 text-sm" x-show="empSuggestionList().length===0">ไม่พบพนักงาน</li>
+          </ul>
+        </div>
+        <div class="mt-2 text-sm text-gray-600" x-show="form.empId">
+          เลือกแล้ว: <span class="font-medium" x-text="`${form.empId} — ${form.fullName}`"></span>
+          <span class="ml-2 px-2 py-0.5 rounded bg-gray-100" x-text="form.position || '-'"></span>
+          <button type="button" class="ml-2 text-blue-600 underline" @click="clearEmp()">เปลี่ยน</button>
+        </div>
+      </div>
+
+      <!-- วันที่ -->
       <div>
-        <label class="block text-xs font-medium text-gray-600">ค้นหา</label>
-        <input class="border px-3 py-2 rounded w-full"
-               placeholder="Emp ID / ชื่อ / หมายเหตุ"
-               x-model.trim="filters.search"
-               @input.debounce.350ms="reloadDebounced()">
+        <label class="block text-sm font-medium">วันที่ (Date)</label>
+        <input class="mt-1 w-full border px-3 py-2 rounded"
+               type="date"
+               x-model="form.date"
+               @change="reloadDebounced && reloadDebounced()">
+      </div>
+
+      <!-- เวลาเข้า/ออก -->
+      <div>
+        <label class="block text-sm font-medium">Check-in Time</label>
+        <input class="mt-1 w-full border px-3 py-2 rounded" type="time" x-model="form.checkIn">
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600">สถานะ</label>
-        <select class="border px-3 py-2 rounded w-full"
-                x-model="filters.status"
-                @change="reloadDebounced()">
-          <option value="">— ทั้งหมด —</option>
-          <option>Pending</option>
-          <option>Approved</option>
-          <option>Rejected</option>
-        </select>
+        <label class="block text-sm font-medium">Check-out Time</label>
+        <input class="mt-1 w-full border px-3 py-2 rounded" type="time" x-model="form.checkOut">
       </div>
+
+      <!-- Leave Type / Status -->
       <div>
-        <label class="block text-xs font-medium text-gray-600">ชนิดการลา</label>
-        <select class="border px-3 py-2 rounded w-full"
-                x-model="filters.leaveType"
-                @change="reloadDebounced()">
-          <option value="">— ทั้งหมด —</option>
+        <label class="block text-sm font-medium">Leave Type</label>
+        <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.leaveType">
+          <option value="">— None —</option>
           <option>Sick</option>
           <option>Annual</option>
           <option>Business</option>
@@ -453,109 +488,173 @@
         </select>
       </div>
       <div>
-        <label class="block text-xs font-medium text-gray-600">จากวันที่</label>
-        <input type="date" class="border px-3 py-2 rounded w-full"
-               x-model="filters.from"
-               @input.debounce.350ms="reloadDebounced()">
+        <label class="block text-sm font-medium">Approval Status</label>
+        <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.status">
+          <option>Pending</option>
+          <option>Approved</option>
+          <option>Rejected</option>
+        </select>
       </div>
-      <div>
-        <label class="block text-xs font-medium text-gray-600">ถึงวันที่</label>
-        <input type="date" class="border px-3 py-2 rounded w-full"
-               x-model="filters.to"
-               @input.debounce.350ms="reloadDebounced()">
+
+      <!-- Note -->
+      <div class="md:col-span-3">
+        <label class="block text-sm font-medium">Note</label>
+        <input class="mt-1 w-full border px-3 py-2 rounded"
+               x-model.trim="form.note"
+               placeholder="หมายเหตุเพิ่มเติม (ถ้ามี)"
+               @keydown.enter.prevent="save()">
       </div>
     </div>
 
-    <!-- Actions -->
-    <div class="flex items-center gap-2">
+    <!-- ปุ่ม -->
+    <div class="flex justify-end gap-2">
       <button type="button"
-              class="px-3 py-2 rounded-lg border hover:bg-gray-50"
-              @click.debounce.200ms="offset=0; reload()">
-        🔄 รีเฟรช
-      </button>
+              @click.debounce.300ms="resetForm()"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-gray-700 hover:bg-gray-50 transition"
+              :disabled="busy?.save">♻️ รีเซ็ต</button>
       <button type="button"
-              class="px-3 py-2 rounded-lg border hover:bg-gray-50"
-              @click.debounce.200ms="exportCsv()">
-        ⬇️ ส่งออก CSV
-      </button>
-    </div>
-  </div>
-
-  <div class="text-sm text-gray-600">
-    รวม <span class="font-medium" x-text="total"></span> รายการ
-    <span class="ml-2">หน้า: <span x-text="Math.floor(offset/limit)+1"></span></span>
-  </div>
-
-  <div class="overflow-auto border rounded-lg">
-    <table class="min-w-full text-sm">
-      <thead class="bg-gray-50 text-gray-600">
-        <tr>
-          <th class="px-3 py-2 text-left">วันที่</th>
-          <th class="px-3 py-2 text-left">พนักงาน</th>
-          <th class="px-3 py-2 text-left">เข้า</th>
-          <th class="px-3 py-2 text-left">ออก</th>
-          <th class="px-3 py-2 text-left">สถานะ</th>
-          <th class="px-3 py-2 text-left">ลา</th>
-          <th class="px-3 py-2 text-left">หมายเหตุ</th>
-          <th class="px-3 py-2 text-right">จัดการ</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="row in records" :key="row.id">
-          <tr class="border-t">
-            <td class="px-3 py-2" x-text="row.date"></td>
-            <td class="px-3 py-2">
-              <div class="font-medium" x-text="row.fullName || '-'"></div>
-              <div class="text-xs text-gray-500">
-                <span x-text="row.empId"></span>
-                <span class="ml-1" x-text="row.position ? '· '+row.position : ''"></span>
-              </div>
-            </td>
-            <td class="px-3 py-2" x-text="row.checkIn || '—'"></td>
-            <td class="px-3 py-2" x-text="row.checkOut || '—'"></td>
-            <td class="px-3 py-2">
-              <span class="px-2 py-0.5 rounded text-xs"
-                    :class="{
-                      'bg-yellow-100 text-yellow-800': row.status==='Pending',
-                      'bg-green-100 text-green-800': row.status==='Approved',
-                      'bg-red-100 text-red-800': row.status==='Rejected'
-                    }"
-                    x-text="row.status || '-'"></span>
-            </td>
-            <td class="px-3 py-2" x-text="row.leaveType || '-'"></td>
-            <td class="px-3 py-2" x-text="row.note || '-'"></td>
-            <td class="px-3 py-2 text-right">
-              <button class="px-2 py-1 rounded border mr-1 hover:bg-gray-50"
-                      @click="edit(row)">แก้ไข</button>
-              <button class="px-2 py-1 rounded border hover:bg-red-50 text-red-600 disabled:opacity-60"
-                      :disabled="busy.remove"
-                      @click.debounce.200ms="remove(row)">ลบ</button>
-            </td>
-          </tr>
+              @click.debounce.300ms="save()"
+              class="inline-flex items-center gap-2 px-5 py-2 rounded-lg text-white font-medium transition
+                     bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+              :disabled="busy?.save || !form.empId || !form.fullName || !form.date">
+        <template x-if="!busy?.save">
+          <span x-text="editingIndex===null ? '💾 Save' : '✅ Update'"></span>
         </template>
-        <tr x-show="records.length===0">
-          <td colspan="8" class="px-3 py-6 text-center text-gray-500">ไม่พบข้อมูล</td>
-        </tr>
-      </tbody>
-    </table>
+        <template x-if="busy?.save"><span>กำลังบันทึก…</span></template>
+      </button>
+    </div>
   </div>
 
-  <!-- Pagination -->
-  <div class="flex items-center justify-between">
-    <div class="text-xs text-gray-500">
-      แสดง <span x-text="records.length"></span> จากทั้งหมด <span x-text="total"></span>
+  <!-- การ์ด: ฟิลเตอร์ + ตาราง -->
+  <div class="bg-white p-6 rounded-lg shadow space-y-4">
+    <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 w-full md:w-auto">
+        <div>
+          <label class="block text-xs font-medium text-gray-600">ค้นหา</label>
+          <input class="border px-3 py-2 rounded w-full"
+                 placeholder="Emp ID / ชื่อ / หมายเหตุ"
+                 x-model.trim="filters.search"
+                 @input.debounce.350ms="offset=0; reloadDebounced()">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">สถานะ</label>
+          <select class="border px-3 py-2 rounded w-full"
+                  x-model="filters.status"
+                  @change="offset=0; reloadDebounced()">
+            <option value="">— ทั้งหมด —</option>
+            <option>Pending</option>
+            <option>Approved</option>
+            <option>Rejected</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">ชนิดการลา</label>
+          <select class="border px-3 py-2 rounded w-full"
+                  x-model="filters.leaveType"
+                  @change="offset=0; reloadDebounced()">
+            <option value="">— ทั้งหมด —</option>
+            <option>Sick</option>
+            <option>Annual</option>
+            <option>Business</option>
+            <option>Unpaid</option>
+            <option>WFH</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">จากวันที่</label>
+          <input type="date" class="border px-3 py-2 rounded w-full"
+                 x-model="filters.from"
+                 @input.debounce.350ms="offset=0; reloadDebounced()">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600">ถึงวันที่</label>
+          <input type="date" class="border px-3 py-2 rounded w-full"
+                 x-model="filters.to"
+                 @input.debounce.350ms="offset=0; reloadDebounced()">
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button type="button"
+                class="px-3 py-2 rounded-lg border hover:bg-gray-50"
+                @click.debounce.200ms="offset=0; reload()">🔄 รีเฟรช</button>
+        <button type="button"
+                class="px-3 py-2 rounded-lg border hover:bg-gray-50"
+                @click.debounce.200ms="exportCsv()">⬇️ ส่งออก CSV</button>
+      </div>
     </div>
-    <div class="flex items-center gap-2">
-      <button class="px-3 py-2 rounded border disabled:opacity-50"
-              :disabled="offset===0"
-              @click="offset=Math.max(0, offset-limit); reload()">
-        ◀️ ก่อนหน้า
-      </button>
-      <button class="px-3 py-2 rounded border disabled:opacity-50"
-              :disabled="offset+limit>=total"
-              @click="offset=offset+limit; reload()">
-        ถัดไป ▶️
-      </button>
+
+    <div class="text-sm text-gray-600">
+      รวม <span class="font-medium" x-text="total"></span> รายการ
+      <span class="ml-2">หน้า: <span x-text="Math.floor(offset/limit)+1"></span></span>
+    </div>
+
+    <div class="overflow-auto border rounded-lg">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50 text-gray-600">
+          <tr>
+            <th class="px-3 py-2 text-left">วันที่</th>
+            <th class="px-3 py-2 text-left">พนักงาน</th>
+            <th class="px-3 py-2 text-left">เข้า</th>
+            <th class="px-3 py-2 text-left">ออก</th>
+            <th class="px-3 py-2 text-left">สถานะ</th>
+            <th class="px-3 py-2 text-left">ลา</th>
+            <th class="px-3 py-2 text-left">หมายเหตุ</th>
+            <th class="px-3 py-2 text-right">จัดการ</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in records" :key="row.id">
+            <tr class="border-t">
+              <td class="px-3 py-2" x-text="row.date"></td>
+              <td class="px-3 py-2">
+                <div class="font-medium" x-text="row.fullName || '-'"></div>
+                <div class="text-xs text-gray-500">
+                  <span x-text="row.empId"></span>
+                  <span class="ml-1" x-text="row.position ? '· '+row.position : ''"></span>
+                </div>
+              </td>
+              <td class="px-3 py-2" x-text="row.checkIn || '—'"></td>
+              <td class="px-3 py-2" x-text="row.checkOut || '—'"></td>
+              <td class="px-3 py-2">
+                <span class="px-2 py-0.5 rounded text-xs"
+                      :class="{
+                        'bg-yellow-100 text-yellow-800': row.status==='Pending',
+                        'bg-green-100 text-green-800': row.status==='Approved',
+                        'bg-red-100 text-red-800': row.status==='Rejected'
+                      }"
+                      x-text="row.status || '-'"></span>
+              </td>
+              <td class="px-3 py-2" x-text="row.leaveType || '-'"></td>
+              <td class="px-3 py-2" x-text="row.note || '-'"></td>
+              <td class="px-3 py-2 text-right">
+                <button class="px-2 py-1 rounded border mr-1 hover:bg-gray-50"
+                        @click="edit(row)">แก้ไข</button>
+                <button class="px-2 py-1 rounded border hover:bg-red-50 text-red-600 disabled:opacity-60"
+                        :disabled="busy.remove"
+                        @click.debounce.200ms="remove(row)">ลบ</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="records.length===0">
+            <td colspan="8" class="px-3 py-6 text-center text-gray-500">ไม่พบข้อมูล</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <div class="text-xs text-gray-500">
+        แสดง <span x-text="records.length"></span> จากทั้งหมด <span x-text="total"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="px-3 py-2 rounded border disabled:opacity-50"
+                :disabled="offset===0"
+                @click="offset=Math.max(0, offset-limit); reload()">◀️ ก่อนหน้า</button>
+        <button class="px-3 py-2 rounded border disabled:opacity-50"
+                :disabled="offset+limit>=total"
+                @click="offset=offset+limit; reload()">ถัดไป ▶️</button>
+      </div>
     </div>
   </div>
 </div>
