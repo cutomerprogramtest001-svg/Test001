@@ -20,6 +20,167 @@ export const onRequest = async (ctx) => {
     });
   } 
   const path = url.pathname.replace(/^\/api\/?/, '').trim(); // strip /api/
+  // ========== [Sales Module] — drop-in router (append-safe) ==========
+async function salesRouter(path, method, url, request, env) {
+  if (!path.startsWith('sales/')) return null;
+
+  const db   = env.DB;
+  const user = request.headers.get('x-user') || 'system';
+  const send = (data, status = 200) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': request.headers.get('Origin') || '*',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-User',
+        'Access-Control-Allow-Credentials': 'true',
+      },
+    });
+
+  if (method === 'OPTIONS') return send(null, 204);
+
+  // helpers (เฉพาะ scope นี้)
+  const safeJsonLocal = async () => {
+    const t = await request.text(); if (!t) return {};
+    try { return JSON.parse(t); } catch { return {}; }
+  };
+  const ident = (s) => String(s||'').replace(/[^a-zA-Z0-9_]/g,'');
+  const getCols = async (table) => {
+    const rs = await db.prepare(`PRAGMA table_info(${ident(table)})`).all();
+    return (rs.results || []).map(r => r.name);
+  };
+  const withAuditInsert = (b, user, cols) => {
+    const out = {};
+    for (const k of Object.keys(b||{})) {
+      if (!cols.includes(k)) continue;
+      if (k==='id'||k==='CreateDate'||k==='UpdateDate') continue;
+      out[k] = b[k];
+    }
+    if (cols.includes('CreateBy')) out.CreateBy = user;
+    if (cols.includes('UpdateBy')) out.UpdateBy = user;
+    return out;
+  };
+  const withAuditUpdate = (b, user, cols) => {
+    const out = {};
+    for (const k of Object.keys(b||{})) {
+      if (!cols.includes(k)) continue;
+      if (k==='id'||k==='CreateDate'||k==='UpdateDate') continue;
+      out[k] = b[k];
+    }
+    if (cols.includes('UpdateBy')) out.UpdateBy = user;
+    return out;
+  };
+  const pagin = (def=50) => {
+    const sp = url.searchParams;
+    const limit  = Math.min(Math.max(parseInt(sp.get('limit')||def,10),1),500);
+    const offset = Math.max(parseInt(sp.get('offset')||'0',10),0);
+    return { limit, offset };
+  };
+
+  // parse path: /api/sales/<table>[/<id>] -> physical = sales_<table>
+  const segs  = path.split('/').filter(Boolean); // ['sales','orders','123']
+  const tBase = segs[1];
+  const rowId = segs[2] || null;
+  if (!tBase) return send({ ok:false, error:'Missing sales table' }, 400);
+
+  const table = `sales_${ident(tBase)}`;
+  const exists = await db.prepare(
+    `SELECT 1 FROM sqlite_master WHERE type='table' AND name=?`
+  ).bind(table).first();
+  if (!exists) return send({ ok:false, error:`Sales table not found: ${table}` }, 404);
+
+  const cols = await getCols(table);
+  const sp   = url.searchParams;
+
+  // LIST
+  if (method === 'GET' && !rowId) {
+    const { limit, offset } = pagin(50);
+    const where = [], binds = [];
+
+    const from   = sp.get('from');   // yyyy-mm-dd
+    const to     = sp.get('to');
+    const status = sp.get('status');
+    const cust   = sp.get('customer') || sp.get('customerId');
+    const search = sp.get('search');
+
+    const dateCol = ['date','docDate','orderDate','invoiceDate','createdAt','CreateDate'].find(c => cols.includes(c));
+    if (status && cols.includes('status')) { where.push('status = ?'); binds.push(status); }
+    if (cust) {
+      if (cols.includes('customerId')) { where.push('customerId = ?'); binds.push(cust); }
+      else if (cols.includes('customer')) { where.push('customer = ?'); binds.push(cust); }
+    }
+    if (dateCol && (from || to)) {
+      if (from && to) { where.push(`${ident(dateCol)} BETWEEN ? AND ?`); binds.push(from, to); }
+      else if (from)  { where.push(`${ident(dateCol)} >= ?`);          binds.push(from); }
+      else if (to)    { where.push(`${ident(dateCol)} <= ?`);          binds.push(to); }
+    }
+    if (search) {
+      const sCols = ['docNo','customerName','note','remark','refNo'].filter(c => cols.includes(c));
+      if (sCols.length) {
+        where.push(`(${sCols.map(c=>`${ident(c)} LIKE ?`).join(' OR ')})`);
+        sCols.forEach(()=> binds.push(`%${search}%`));
+      }
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const orderBy  = dateCol ? `${ident(dateCol)} DESC, id DESC` : `id DESC`;
+
+    const list = await db.prepare(
+      `SELECT * FROM ${ident(table)} ${whereSql} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
+    ).bind(...binds, limit, offset).all();
+
+    const total = await db.prepare(`SELECT COUNT(*) AS c FROM ${ident(table)} ${whereSql}`)
+      .bind(...binds).first();
+
+    return send({ ok:true, data:list.results||[], total: total?.c||0, limit, offset });
+  }
+
+  // GET one
+  if (method === 'GET' && rowId) {
+    const row = await db.prepare(`SELECT * FROM ${ident(table)} WHERE id=?`).bind(rowId).first();
+    return row ? send({ ok:true, data:row }) : send({ ok:false, error:'Not found' }, 404);
+  }
+
+  // CREATE
+  if (method === 'POST') {
+    const body = await safeJsonLocal();
+    const payload = withAuditInsert(body, user, cols);
+    if (!Object.keys(payload).length) return send({ ok:false, error:'Empty payload' }, 400);
+
+    const keys = Object.keys(payload);
+    const q = `INSERT INTO ${ident(table)} (${keys.map(ident).join(', ')})
+               VALUES (${keys.map(()=>'?').join(', ')})`;
+    const info = await db.prepare(q).bind(...keys.map(k=>payload[k])).run();
+    const id = info.lastRowId ?? info.meta?.last_row_id;
+    const row = await db.prepare(`SELECT * FROM ${ident(table)} WHERE id=?`).bind(id).first();
+    return send({ ok:true, data: row, id }, 201);
+  }
+
+  // UPDATE
+  if (method === 'PUT' && rowId) {
+    const body = await safeJsonLocal();
+    const payload = withAuditUpdate(body, user, cols);
+    const keys = Object.keys(payload);
+    if (!keys.length) return send({ ok:false, error:'No updatable fields' }, 400);
+    const setSql = keys.map(k=>`${ident(k)}=?`).join(', ');
+    const extra  = cols.includes('UpdateDate') ? `, UpdateDate = datetime('now')` : '';
+    const sql = `UPDATE ${ident(table)} SET ${setSql}${extra} WHERE id=?`;
+    const binds = keys.map(k=>payload[k]); binds.push(rowId);
+    const res = await db.prepare(sql).bind(...binds).run();
+    return send({ ok:true, changes: res.changes });
+  }
+
+  // DELETE
+  if (method === 'DELETE' && rowId) {
+    const res = await db.prepare(`DELETE FROM ${ident(table)} WHERE id=?`).bind(rowId).run();
+    return send({ ok:true, changes: res.changes });
+  }
+
+  return send({ ok:false, error:'Unsupported sales route or method' }, 405);
+}
+globalThis.__salesRouter = salesRouter;
+
     // ========== [HR Attendance & TimeClock] — drop-in router (append-safe) ==========
   // ใช้เมื่อคุณไม่อยากแก้โครงไฟล์เดิมมาก: แค่ "เรียก" hrRouter() ใน onRequest เดิมก็พอ
   // ต้องมี D1 binding ชื่อ env.DB
@@ -286,6 +447,8 @@ export const onRequest = async (ctx) => {
   const method = request.method.toUpperCase();
   const hrResp = await hrRouter(path, method, url, request, env);
   if (hrResp) return hrResp;
+  const salesResp = await salesRouter(path, method, url, request, env);
+  if (salesResp) return salesResp;
   const user = request.headers.get('x-user') || 'system';
   const db = env.DB; // <-- bind D1 as "DB" in Pages > Settings > Functions > D1
 
