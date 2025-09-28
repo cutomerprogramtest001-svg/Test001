@@ -2784,6 +2784,7 @@ function quotationApp(){
     }
   };
 }
+
 </script>
 
 </body>
@@ -11302,7 +11303,7 @@ window.attendanceApp = function attendanceApp(){
       },
 
       async init(){ await this.reload(); this._genCode(); },
-      async reload(){ this.customers = await api('/api/customers'); },
+      async reload(){ this.customers = await api('/api/sales/customers'); },
       _genCode(){ if(!this.form.code){ const run = String((this.customers?.length||0)+1).padStart(6,"0"); this.form.code = `C${run}`; } },
       onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes((this.searchQuery||"").toLowerCase())).slice(0,20); },
       pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
@@ -11323,10 +11324,10 @@ window.attendanceApp = function attendanceApp(){
         payload.addr = JSON.stringify(payload.addr||{});
         payload.medical = JSON.stringify(payload.medical||{});
         if(this.editingIndex===null){
-          await api('/api/customers', { method:'POST', body: payload });
+          await api('/api/sales/customers', { method:'POST', body: payload });
         }else{
           const row = this.customers[this.editingIndex];
-          await api(`/api/customers/${row.id}`, { method:'PUT', body: payload });
+          await api(`/api/sales/customers/${row.id}`, { method:'PUT', body: payload });
         }
         await this.reload(); this.resetForm(); alert("Saved.");
       },
@@ -11338,7 +11339,7 @@ window.attendanceApp = function attendanceApp(){
         try{ c.medical = c.medical ? JSON.parse(c.medical) : {}; }catch(e){ c.medical={ diseases:[], allergies:[] }; }
         this.form = c;
       },
-      async remove(i){ if(!confirm('Delete?')) return; const row=this.customers[i]; await api(`/api/customers/${row.id}`, { method:'DELETE' }); await this.reload(); },
+      async remove(i){ if(!confirm('Delete?')) return; const row=this.customers[i]; await api(`/api/sales/customers/${row.id}`, { method:'DELETE' }); await this.reload(); },
       filteredCustomers(){
         const kw = (this.filter.keyword||"").toLowerCase();
         return this.customers.filter(c=>{
@@ -11358,7 +11359,7 @@ window.attendanceApp = function attendanceApp(){
       form:{ id:null, qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" }, items:[], note:"", confirmed:false },
 
       async init(){ await this.reload(); this.previewQuotationNo(); },
-      async reload(){ this.quotes = await api('/api/quotes'); },
+      async reload(){ this.quotes = await api('/api/sales/quotations'); },
       previewQuotationNo(){
         const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
         const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
@@ -11368,7 +11369,7 @@ window.attendanceApp = function attendanceApp(){
       locked(){ return !!this.form.confirmed; },
       onCustomerSearch(){
         this.showSug = !!this.customerSearch;
-        api('/api/customers').then(list=>{
+        api('/api/sales/customers').then(list=>{
           const kw = (this.customerSearch||"").toLowerCase();
           this.customerSug = list.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(kw)).slice(0,20);
         });
@@ -11385,14 +11386,293 @@ window.attendanceApp = function attendanceApp(){
         payload.customer = JSON.stringify(payload.customer||{});
         payload.items = JSON.stringify(payload.items||[]);
         if(this.editingIndex===null){
-          await api('/api/quotes', { method:'POST', body: payload });
+          await api('/api/sales/quotations', { method:'POST', body: payload });
         }else{
           const row = this.quotes[this.editingIndex];
-          await api(`/api/quotes/${row.id}`, { method:'PUT', body: payload });
+          await api(`/api/sales/quotations/${row.id}`, { method:'PUT', body: payload });
         }
         await this.reload(); alert("Saved.");
       }
     };
   };
+  
+// ===== Sales » Order (API-backed) =====
+function saleOrderApp(){
+  return {
+    // -------- state --------
+    editingIndex: null,        // ไม่ได้ใช้กับ API แต่คงไว้ให้ UI เดิมทำงาน
+    headerLocked: false,
+    showPending: false,
+    orders: [],                // รายการที่โหลดจาก API
+    flt: { keyword:'', from:'', to:'', minNet:null },
+
+    form: {
+      soNo: '',                // docNo
+      soDate: new Date().toISOString().slice(0,10), // date/docDate
+      refQuotationNo: '',
+      customer: { code:'', nationalId:'', firstName:'', lastName:'', age:'', phone:'', email:'' },
+      symptoms: '',
+      items: [],
+      payment: { method:'FULL', full:{ paid:false, paidAt:'', receiptNo:'' }, rounds:2, installments:[] },
+      doctorNote: ''
+    },
+
+    // -------- lifecycle --------
+    async init(){
+      this.ensureSoNoPreview();
+      await this.reload(); // โหลดรายการจาก /api/sales/orders
+    },
+
+    // -------- utils (UI) --------
+    dateShort(d){ if(!d) return ''; try{ const x=new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}` }catch{ return d } },
+    fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); },
+
+    rowTotal(row){ const q=Number(row.qty||0), p=Number(row.price||0), disc=Number(row.discount||0); return Math.max(0,(q*p)-disc); },
+    sumBefore(){ return this.form.items.reduce((s,r)=>s+Number(r.qty||0)*Number(r.price||0),0); },
+    sumDiscount(){ return this.form.items.reduce((s,r)=>s+Number(r.discount||0),0); },
+    netTotal(){ return this.form.items.reduce((s,r)=>s+this.rowTotal(r),0); },
+
+    buildInstallments(){
+      const n = Math.max(2, Math.min(12, Number(this.form.payment.rounds||2)));
+      this.form.payment.installments = Array.from({length:n}, (_,i)=>({
+        amount: i===0 ? this.netTotal() : 0, paid:false, paidAt:'', receiptNo:''
+      }));
+    },
+    splitEven(){
+      const n = Math.max(2, (this.form.payment.installments||[]).length || Number(this.form.payment.rounds||2));
+      const total = this.netTotal();
+      const each = Math.floor((total/n) * 100) / 100;
+      const arr = Array.from({length:n},()=>({amount:each, paid:false, paidAt:'', receiptNo:''}));
+      // ใส่ส่วนเกิน (เศษสตางค์) ไปงวดสุดท้าย
+      const diff = +(total - each*(n)).toFixed(2);
+      if (diff !== 0 && arr.length) arr[arr.length-1].amount = +(arr[arr.length-1].amount + diff).toFixed(2);
+      this.form.payment.installments = arr;
+    },
+    validateInstallments(){ /* แค่คงให้ผู้ใช้จัดเองได้ */ },
+    sumInstallments(){ return (this.form.payment.installments||[]).reduce((s,i)=>s+Number(i.amount||0),0); },
+
+    addRow(){ this.form.items.push({ service:'', tooth:'', qty:1, price:0, discount:0 }); },
+    removeRow(i){ this.form.items.splice(i,1); },
+
+    ensureSoNoPreview(){
+      if (!this.form.soDate) this.form.soDate = new Date().toISOString().slice(0,10);
+      if (!this.form.soNo) {
+        const d = new Date(this.form.soDate);
+        const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+        this.form.soNo = `SO${ymd}-TMP`;
+      }
+    },
+
+    // -------- mapping UI <-> API --------
+    // ตารางจริง: sales_orders (router แมปให้อัตโนมัติจาก /api/sales/orders)
+    // จะส่งเฉพาะคอลัมน์ที่มีจริงในตาราง; field อื่นๆ จะถูกเก็บใน JSON (ถ้าคุณมีคอลัมน์รองรับ เช่น payload)
+    _toApiPayload(){
+      // ลองเดาชื่อคอลัมน์ยอดนิยม: docNo, date/docDate, customerId/customerName, status, total, note/remark, refNo
+      const total = this.netTotal();
+      const customerName = `${this.form.customer.firstName||''} ${this.form.customer.lastName||''}`.trim();
+      return {
+        docNo: this.form.soNo || null,
+        date: this.form.soDate || null,           // ถ้าตารางใช้ docDate แทน date ก็ยัง query ได้ (router รองรับ)
+        customerId: this.form.customer.code || null,
+        customerName: customerName || null,
+        status: (this.form.payment?.full?.paid || (this.form.payment?.installments||[]).some(x=>x.paid)) ? 'Closed' : 'Open',
+        total: Number.isFinite(total) ? +total.toFixed(2) : 0,
+        note: this.form.symptoms || '',
+        refNo: this.form.refQuotationNo || '',
+        // เผื่อคุณมีคอลัมน์ JSON เช่น 'payload' เก็บโครงเต็ม
+        payload: JSON.stringify(this.form)
+      };
+    },
+    _fromApiRow(row){
+      // แปลง row จาก DB → โครง UI เดิมของคุณ
+      const payload = (()=>{ try{ return row.payload ? JSON.parse(row.payload) : null; }catch{ return null; }})();
+      const ui = {
+        soNo: row.docNo || payload?.soNo || `SO-${row.id}`,
+        soDate: row.date || row.docDate || payload?.soDate || '',
+        refQuotationNo: row.refNo || payload?.refQuotationNo || '',
+        customer: {
+          code: row.customerId || payload?.customer?.code || '',
+          nationalId: payload?.customer?.nationalId || '',
+          firstName: row.customerName ? String(row.customerName).split(' ')[0] : (payload?.customer?.firstName || ''),
+          lastName: row.customerName ? String(row.customerName).split(' ').slice(1).join(' ') : (payload?.customer?.lastName || ''),
+          age: payload?.customer?.age || '',
+          phone: payload?.customer?.phone || '',
+          email: payload?.customer?.email || ''
+        },
+        symptoms: payload?.symptoms || row.note || row.remark || '',
+        items: payload?.items || [],
+        payment: payload?.payment || { method:'FULL', full:{ paid:false, paidAt:'', receiptNo:'' }, rounds:2, installments:[] },
+        doctorNote: payload?.doctorNote || ''
+      };
+      return { ui, raw: row, net: Number(row.total || this.netTotalFromItems(ui.items)) };
+    },
+    netTotalFromItems(items){ return (items||[]).reduce((s,r)=> s + Math.max(0,(Number(r.qty||0)*Number(r.price||0))-Number(r.discount||0)), 0); },
+
+    // -------- API calls --------
+    async reload(){
+      const p = new URLSearchParams();
+      if (this.flt.keyword) p.set('search', this.flt.keyword);
+      if (this.flt.from)    p.set('from', this.flt.from);
+      if (this.flt.to)      p.set('to', this.flt.to);
+      p.set('limit', 50); p.set('offset', 0);
+
+      const res = await api(`/api/sales/orders?${p.toString()}`);
+      const list = res.data || res || [];
+      this.orders = list.map(r => {
+        const m = this._fromApiRow(r);
+        // แทรกฟิลด์ที่ตารางใน Records ใช้
+        return {
+          soNo: m.ui.soNo,
+          soDate: m.ui.soDate,
+          customer: m.ui.customer,
+          net: Number(r.total ?? m.net) || 0,
+          payment: m.ui.payment,
+          refQuotationNo: m.ui.refQuotationNo,
+          _row: r
+        };
+      });
+    },
+
+    canSave(){
+      // อย่างน้อยต้องมีวันที่ + ลูกค้า + มีรายการ >= 1
+      return !!(this.form.soDate && (this.form.customer.code || this.form.customer.firstName || this.form.customer.lastName) && this.form.items.length > 0);
+    },
+
+    async save(){
+      if (!this.canSave()) { window.toast?.('กรอกข้อมูลให้ครบก่อนบันทึก','error'); return; }
+
+      const payload = this._toApiPayload();
+
+      // กำหนดหมายเลขเอกสารถ้ายังเป็น TMP
+      if (!payload.docNo || /-TMP$/.test(payload.docNo)) {
+        const d = new Date(this.form.soDate);
+        const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
+        payload.docNo = `SO${ymd}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+        this.form.soNo = payload.docNo;
+      }
+
+      // ตรวจว่าเอกสารนี้เคยบันทึกไว้หรือยัง (ค้นจาก docNo ในรายการที่โหลดมา)
+      const existed = this.orders.find(o => o.soNo === this.form.soNo);
+
+      if (!existed) {
+        const out = await api('/api/sales/orders', { method:'POST', body: payload });
+        window.toast?.('บันทึก SO สำเร็จ','success');
+        this.headerLocked = false;
+        await this.reload();
+        this.editByNo(out?.data?.docNo || payload.docNo); // โหลดกลับเข้าแบบฟอร์ม
+      } else {
+        // แก้ไขแถวเดิม
+        const id = existed?._row?.id;
+        if (!id) { window.toast?.('ไม่พบไอดีเอกสารเดิม','error'); return; }
+        await api(`/api/sales/orders/${id}`, { method:'PUT', body: payload });
+        window.toast?.('อัปเดต SO สำเร็จ','success');
+        await this.reload();
+        this.editByNo(payload.docNo);
+      }
+    },
+
+    async deleteByNo(soNo){
+      const row = this.orders.find(o => o.soNo === soNo);
+      if (!row) return;
+      if (!confirm('Delete?')) return;
+      await api(`/api/sales/orders/${row._row.id}`, { method:'DELETE' });
+      window.toast?.('ลบ SO แล้ว','success');
+      await this.reload();
+      if (this.form.soNo === soNo) this.resetForm();
+    },
+
+    async editByNo(soNo){
+      const row = this.orders.find(o => o.soNo === soNo);
+      if (!row) { window.toast?.('ไม่พบเอกสาร', 'error'); return; }
+      // แปลงกลับโครงเต็มจาก _row
+      const m = this._fromApiRow(row._row);
+      Object.assign(this.form, m.ui);
+      this.headerLocked = false;
+      window.toast?.('โหลด SO เข้าฟอร์มแล้ว','info');
+    },
+
+    // -------- Pending จาก Quotation (ยังใช้ storage เดิม) --------
+    pendingQuotations(){
+      const quotes = _storage.get('quotes', []) || [];
+      // สมมุติ: confirmed แล้ว และยังไม่มีใน SO (เทียบด้วย qNo)
+      const usedQ = new Set(this.orders.map(o => (o._row?.refNo || '')));
+      return quotes
+        .filter(q => q.confirmed)
+        .filter(q => !usedQ.has(q.qNo))
+        .map(q => ({ ...q, net: (q.items||[]).reduce((s,r)=> s + Math.max(0,(Number(r.qty||0)*Number(r.price||0))-Number(r.discount||0)), 0) }));
+    },
+    createFromQuotation(qNo){
+      const q = (_storage.get('quotes', []) || []).find(x => x.qNo === qNo);
+      if (!q) { window.toast?.('ไม่พบ Quotation', 'error'); return; }
+      // lock header บางส่วน (ตามที่คุณกำหนดไว้)
+      this.headerLocked = true;
+      this.form.refQuotationNo = q.qNo;
+      this.form.customer = {
+        code: q.customer?.code || '',
+        nationalId: q.customer?.nationalId || '',
+        firstName: q.customer?.firstName || '',
+        lastName: q.customer?.lastName || '',
+        age: q.customer?.age || '',
+        phone: this.form.customer.phone,  // q ไม่มี phone/email ในสตับเดิม
+        email: this.form.customer.email
+      };
+      this.form.items = (q.items||[]).map(x => ({
+        service: x.service || '',
+        tooth: x.tooth || '',
+        qty: Number(x.qty||1),
+        price: Number(x.price||0),
+        discount: Number(x.discount||0)
+      }));
+      this.showPending = false;
+      this.ensureSoNoPreview();
+      window.toast?.('ดึงข้อมูลจาก Quotation แล้ว','success');
+    },
+    openPending(){ this.showPending = true; },
+
+    // -------- Payment actions (สรุปการทำงาน) --------
+    async receivePayment(mode, idx=null){
+      if (mode==='FULL') {
+        this.form.payment.full.paid = true;
+        this.form.payment.full.paidAt = new Date().toISOString();
+        this.form.payment.full.receiptNo = `RC${Date.now().toString().slice(-6)}`;
+      } else {
+        const ins = this.form.payment.installments[idx];
+        if (!ins) return;
+        ins.paid = true; ins.paidAt = new Date().toISOString(); ins.receiptNo = `RC${Date.now().toString().slice(-6)}`;
+      }
+      // อัปเดตสถานะในเอกสาร แล้วเซฟกลับ API
+      await this.save();
+    },
+    printReceipt(mode, idx=null){
+      window.toast?.('จำลองพิมพ์ใบเสร็จ (TODO: สร้าง PDF จริง)','info');
+    },
+
+    // -------- Misc --------
+    resetForm(){
+      this.editingIndex = null;
+      this.headerLocked = false;
+      this.form = {
+        soNo: '', soDate: new Date().toISOString().slice(0,10),
+        refQuotationNo: '',
+        customer:{ code:'', nationalId:'', firstName:'', lastName:'', age:'', phone:'', email:'' },
+        symptoms:'', items:[],
+        payment:{ method:'FULL', full:{ paid:false, paidAt:'', receiptNo:'' }, rounds:2, installments:[] },
+        doctorNote:''
+      };
+      this.ensureSoNoPreview();
+    },
+    filteredSO(){
+      const kw = (this.flt.keyword||'').toLowerCase();
+      const from = this.flt.from, to = this.flt.to, minNet = Number(this.flt.minNet||0);
+      return this.orders.filter(r=>{
+        const okKw = !kw || [r.soNo, r.customer?.firstName, r.customer?.lastName, r.customer?.nationalId].filter(Boolean).join(' ').toLowerCase().includes(kw);
+        const okFrom = !from || (r.soDate >= from);
+        const okTo   = !to   || (r.soDate <= to);
+        const okNet  = !minNet || (Number(r.net||0) >= minNet);
+        return okKw && okFrom && okTo && okNet;
+      });
+    }
+  };
+}
 })();
 </script>
