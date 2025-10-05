@@ -116,11 +116,17 @@ async function salesRouter(path, method, url, request, env) {
       else if (to)    { where.push(`${ident(dateCol)} <= ?`);          binds.push(to); }
     }
     if (search) {
-      const sCols = ['docNo','customerName','note','remark','refNo'].filter(c => cols.includes(c));
-      if (sCols.length) {
-        where.push(`(${sCols.map(c=>`${ident(c)} LIKE ?`).join(' OR ')})`);
-        sCols.forEach(()=> binds.push(`%${search}%`));
-      }
+      // แทนที่บรรทัดเดิมทั้งหมดของ sCols ด้วยบรรทัดนี้
+      const sCols = (() => {
+        // คอลัมน์ค้นหาปกติฝั่ง sales (จะกรองเฉพาะคอลัมน์ที่มีจริงในตารางนั้น ๆ)
+        let base = ['docNo','customerName','note','remark','refNo'].filter(c => cols.includes(c));
+        // ถ้าเป็นตารางลูกค้า → ใช้ชุดคอลัมน์นี้แทน
+        if (table === 'sales_customers') {
+          base = ['code','firstName','lastName','nationalId','phone','email'].filter(c => cols.includes(c));
+        }
+        return base;
+      })();
+
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
