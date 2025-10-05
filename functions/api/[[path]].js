@@ -147,12 +147,25 @@ async function salesRouter(path, method, url, request, env) {
     const row = await db.prepare(`SELECT * FROM ${ident(table)} WHERE id=?`).bind(rowId).first();
     return row ? send({ ok:true, data:row }) : send({ ok:false, error:'Not found' }, 404);
   }
-
-  // CREATE
-  if (method === 'POST') {
-    const body = await safeJsonLocal();
-    const payload = withAuditInsert(body, user, cols);
-    if (!Object.keys(payload).length) return send({ ok:false, error:'Empty payload' }, 400);
+    
+      // CREATE
+      if (method === 'POST') {
+        const body = await safeJsonLocal();
+        const payload = withAuditInsert(body, user, cols);
+        if (!Object.keys(payload).length) return send({ ok:false, error:'Empty payload' }, 400);
+    // >>> add: duplicate-check (POST) for sales_customers
+    if (table === 'sales_customers') {
+      if (payload.code) payload.code = String(payload.code).trim();
+      if (payload.code) {
+        // เทียบแบบไม่แคร์ตัวพิมพ์ + ตัดช่องว่าง เพื่อกัน CU001 กับ cu001
+        const dup = await db.prepare(
+          `SELECT id FROM sales_customers WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) LIMIT 1`
+        ).bind(payload.code).first();
+        if (dup) {
+          return send({ ok:false, error:`Duplicate customer code: ${payload.code}` }, 409);
+        }
+      }
+    }
 
     const keys = Object.keys(payload);
     const q = `INSERT INTO ${ident(table)} (${keys.map(ident).join(', ')})
@@ -167,6 +180,19 @@ async function salesRouter(path, method, url, request, env) {
   if (method === 'PUT' && rowId) {
     const body = await safeJsonLocal();
     const payload = withAuditUpdate(body, user, cols);
+    // >>> add: duplicate-check (PUT) for sales_customers
+    if (table === 'sales_customers') {
+      if (payload.code) payload.code = String(payload.code).trim();
+      if (payload.code) {
+        const dup = await db.prepare(
+          `SELECT id FROM sales_customers WHERE LOWER(TRIM(code)) = LOWER(TRIM(?)) AND id <> ? LIMIT 1`
+        ).bind(payload.code, rowId).first();
+        if (dup) {
+          return send({ ok:false, error:`Duplicate customer code: ${payload.code}` }, 409);
+        }
+      }
+    }
+
     const keys = Object.keys(payload);
     if (!keys.length) return send({ ok:false, error:'No updatable fields' }, 400);
     const setSql = keys.map(k=>`${ident(k)}=?`).join(', ');
@@ -455,8 +481,175 @@ globalThis.__salesRouter = salesRouter;
   if (hrResp) return hrResp;
   const salesResp = await salesRouter(path, method, url, request, env);
   if (salesResp) return salesResp;
+  r = await geoRouter(path, method, url, request, env);   // <<< ADD
+  if (r) return r;
   const user = request.headers.get('x-user') || 'system';
   const db = env.DB; // <-- bind D1 as "DB" in Pages > Settings > Functions > D1
+// ===== GEO Auto-Create Tables + Auto-Seed + Router (append-safe) =====
+async function ensureGeoTables(db) {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS th_provinces (
+      id        INTEGER PRIMARY KEY,
+      code      TEXT,
+      name_th   TEXT NOT NULL,
+      name_en   TEXT
+    );
+    CREATE TABLE IF NOT EXISTS th_amphures (
+      id          INTEGER PRIMARY KEY,
+      province_id INTEGER NOT NULL,
+      code        TEXT,
+      name_th     TEXT NOT NULL,
+      name_en     TEXT
+    );
+    CREATE TABLE IF NOT EXISTS th_tambons (
+      id          INTEGER PRIMARY KEY,
+      amphure_id  INTEGER NOT NULL,
+      code        TEXT,
+      name_th     TEXT NOT NULL,
+      name_en     TEXT,
+      zipcode     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_amphures_province ON th_amphures(province_id, name_th);
+    CREATE INDEX IF NOT EXISTS idx_tambons_amphure  ON th_tambons(amphure_id, name_th);
+    CREATE INDEX IF NOT EXISTS idx_tambons_zipcode  ON th_tambons(zipcode);
+  `);
+}
+
+const GEO_DATASETS = {
+  provinces: 'https://cdn.jsdelivr.net/gh/kongvut/thai-province-data@latest/json/provinces.json',
+  amphures:  'https://cdn.jsdelivr.net/gh/kongvut/thai-province-data@latest/json/amphures.json',
+  tambons:   'https://cdn.jsdelivr.net/gh/kongvut/thai-province-data@latest/json/tambons.json',
+};
+
+async function ensureGeoSeed(db, fetch, { force=false } = {}) {
+  await ensureGeoTables(db);
+
+  const getCount = async (tbl) => {
+    const row = await db.prepare(`SELECT COUNT(1) AS c FROM ${tbl}`).first();
+    return (row && (row.c ?? row.count ?? row.C)) || 0;
+  };
+  const [pc, ac, tc] = await Promise.all([
+    getCount('th_provinces').catch(()=>0),
+    getCount('th_amphures').catch(()=>0),
+    getCount('th_tambons').catch(()=>0),
+  ]);
+
+  const autoEnv = (typeof AUTOSEED !== 'undefined' ? String(AUTOSEED) : (globalThis?.AUTOSEED || 'true'));
+  const shouldSeed = force || (autoEnv !== 'false' && (pc === 0 || ac === 0 || tc === 0));
+  if (!shouldSeed) return { seeded:false, pc, ac, tc };
+
+  const [pRes, aRes, tRes] = await Promise.all([
+    fetch(GEO_DATASETS.provinces),
+    fetch(GEO_DATASETS.amphures),
+    fetch(GEO_DATASETS.tambons),
+  ]);
+  if (!pRes.ok || !aRes.ok || !tRes.ok) throw new Error('Fetch GEO dataset failed');
+  const [pJs, aJs, tJs] = await Promise.all([pRes.json(), aRes.json(), tRes.json()]);
+
+  const exec = (sql, binds=[]) => db.prepare(sql).bind(...binds).run();
+  await db.exec('BEGIN');
+  try {
+    if (pc === 0) {
+      const sql = `INSERT OR IGNORE INTO th_provinces(id, code, name_th, name_en) VALUES (?, ?, ?, ?)`;
+      for (const p of pJs) {
+        await exec(sql, [Number(p.id), String(p.code ?? p.id), p.name_th || p.name, p.name_en || null]);
+      }
+    }
+    if (ac === 0) {
+      const sql = `INSERT OR IGNORE INTO th_amphures(id, province_id, code, name_th, name_en) VALUES (?, ?, ?, ?, ?)`;
+      for (const a of aJs) {
+        await exec(sql, [Number(a.id), Number(a.province_id), String(a.code ?? a.id), a.name_th || a.name, a.name_en || null]);
+      }
+    }
+    if (tc === 0) {
+      const sql = `INSERT OR IGNORE INTO th_tambons(id, amphure_id, code, name_th, name_en, zipcode) VALUES (?, ?, ?, ?, ?, ?)`;
+      for (const t of tJs) {
+        const z = Array.isArray(t.zip_code) ? t.zip_code[0] : (t.zip_code ?? t.zipcode ?? null);
+        await exec(sql, [Number(t.id), Number(t.amphure_id), String(t.code ?? t.id), t.name_th || t.name, t.name_en || null, z ? String(z) : null]);
+      }
+    }
+    await db.exec('COMMIT');
+  } catch (e) {
+    await db.exec('ROLLBACK'); throw e;
+  }
+  return { seeded:true };
+}
+
+async function geoRouter({ request, url, path, db, send }) {
+  if (!path.startsWith('geo/')) return;
+  const method = request.method.toUpperCase();
+  const qs = Object.fromEntries(url.searchParams.entries());
+
+  // CORS
+  if (method === 'OPTIONS') {
+    return send({ ok:true }, 200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, x-user'
+    });
+  }
+  if (method !== 'GET') {
+    return send({ ok:false, error:'Method Not Allowed' }, 405, { 'Access-Control-Allow-Origin': '*' });
+  }
+
+  // สร้างตาราง + seed ถ้าจำเป็น (หรือบังคับด้วย ?autoseed=1)
+  try { await ensureGeoSeed(db, fetch, { force: qs.autoseed === '1' }); } catch (e) { /* เงียบไว้ให้ list ทำงานต่อได้ */ }
+
+  const send200 = (data) => send({ ok:true, data }, 200, { 'Access-Control-Allow-Origin': '*' });
+
+  if (path === 'geo/provinces') {
+    const search = (qs.search || '').trim();
+    let sql = `SELECT id, name_th AS nameTh, name_en AS nameEn FROM th_provinces`;
+    const binds = [];
+    if (search) {
+      sql += ` WHERE LOWER(name_th) LIKE LOWER(?) OR LOWER(name_en) LIKE LOWER(?)`;
+      const pat = `%${search}%`; binds.push(pat, pat);
+    }
+    sql += ` ORDER BY name_th`;
+    const rows = binds.length ? await db.prepare(sql).bind(...binds).all() : await db.prepare(sql).all();
+    return send200(rows.results || rows);
+  }
+
+  if (path === 'geo/amphures') {
+    const pid = Number(qs.province_id || qs.provinceId || 0) || 0;
+    if (!pid) return send({ ok:false, error:'province_id required' }, 400, { 'Access-Control-Allow-Origin': '*' });
+    const search = (qs.search || '').trim();
+    let sql = `SELECT id, province_id AS provinceId, name_th AS nameTh, name_en AS nameEn
+               FROM th_amphures WHERE province_id = ?`;
+    const binds = [pid];
+    if (search) {
+      sql += ` AND (LOWER(name_th) LIKE LOWER(?) OR LOWER(name_en) LIKE LOWER(?))`;
+      const pat = `%${search}%`; binds.push(pat, pat);
+    }
+    sql += ` ORDER BY name_th`;
+    const rows = await db.prepare(sql).bind(...binds).all();
+    return send200(rows.results || rows);
+  }
+
+  if (path === 'geo/tambons') {
+    const aid = Number(qs.amphure_id || qs.amphureId || 0) || 0;
+    if (!aid) return send({ ok:false, error:'amphure_id required' }, 400, { 'Access-Control-Allow-Origin': '*' });
+    const search = (qs.search || '').trim();
+    let sql = `SELECT id, amphure_id AS amphureId, name_th AS nameTh, name_en AS nameEn, zipcode
+               FROM th_tambons WHERE amphure_id = ?`;
+    const binds = [aid];
+    if (search) {
+      sql += ` AND (LOWER(name_th) LIKE LOWER(?) OR LOWER(name_en) LIKE LOWER(?))`;
+      const pat = `%${search}%`; binds.push(pat, pat);
+    }
+    sql += ` ORDER BY name_th`;
+    const rows = await db.prepare(sql).bind(...binds).all();
+    return send200(rows.results || rows);
+  }
+
+  if (path === 'geo/seed') {
+    const info = await ensureGeoSeed(db, fetch, { force:true });
+    return send({ ok:true, ...info }, 200, { 'Access-Control-Allow-Origin': '*' });
+  }
+
+  return send({ ok:false, error:'Not Found' }, 404, { 'Access-Control-Allow-Origin': '*' });
+}
+// ===== /GEO Auto-Create + Seed + Router =====
 
   // -------- meta endpoints --------
   if (path === '' || path === '/') {
