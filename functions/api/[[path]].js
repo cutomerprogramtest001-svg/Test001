@@ -3,10 +3,10 @@ export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const db = env.DB;                                 // D1 binding name: DB
+  const db = env.DB;                      // D1 binding: DB
   const user = request.headers.get("x-user") || "system";
 
-  // ---------- helpers ----------
+  // ----- helpers -----
   const origin = request.headers.get("Origin") || "*";
   const baseHeaders = {
     "content-type": "application/json; charset=utf-8",
@@ -15,16 +15,14 @@ export const onRequest = async (ctx) => {
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-User",
   };
-  const ok = (data, status = 200) =>
-    new Response(JSON.stringify({ ok: true, data }), { status, headers: baseHeaders });
-  const fail = (msg, status = 400) =>
-    new Response(JSON.stringify({ ok: false, error: msg }), { status, headers: baseHeaders });
+  const send = (data, status=200) => new Response(JSON.stringify(data), { status, headers: baseHeaders });
+  const err  = (msg, status=400)   => send({ error: msg }, status);
 
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
-  if (!url.pathname.startsWith("/api")) return fail("Not found", 404);
+  if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
   const seg = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean); // ["hr","employees","<id>"]
-  const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;       // <-- ไม่บังคับให้เป็นตัวเลข
+  const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;
 
   const q = (name, def = "") => (url.searchParams.get(name) ?? def).trim();
 
@@ -74,10 +72,10 @@ export const onRequest = async (ctx) => {
     return { sql: `UPDATE ${table} SET ${sets} WHERE ${idField}=? RETURNING *`, bind };
   };
 
-  // ---------- health ----------
-  if (seg.length === 0) return ok({ service: "bizapp-api", time: new Date().toISOString() });
+  // ----- health -----
+  if (seg.length === 0) return send({ service:"bizapp-api", time: new Date().toISOString() });
 
-  // ---------- GEO (พารามิเตอร์: province_id, amphure_id) ----------
+  // ===== GEO (หน้าใช้ province_id & amphure_id) =====
   if (seg[0] === "geo") {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS geo_provinces (id INTEGER PRIMARY KEY, name_th TEXT, name_en TEXT);
@@ -86,28 +84,28 @@ export const onRequest = async (ctx) => {
     `);
     if (seg[1] === "provinces" && method === "GET") {
       const rs = await db.prepare(`SELECT id,name_th,name_en FROM geo_provinces ORDER BY name_th`).all();
-      return ok(rs.results || []);
+      return send(rs.results || []);
     }
     if (seg[1] === "amphures" && method === "GET") {
       const pid = q("province_id");
       const st = pid
         ? db.prepare(`SELECT id,province_id,name_th,name_en FROM geo_amphures WHERE province_id=? ORDER BY name_th`).bind(+pid)
         : db.prepare(`SELECT id,province_id,name_th,name_en FROM geo_amphures ORDER BY name_th`);
-      const rs = await st.all(); return ok(rs.results || []);
+      const rs = await st.all(); return send(rs.results || []);
     }
     if (seg[1] === "tambons" && method === "GET") {
       const aid = q("amphure_id");
       const st = aid
         ? db.prepare(`SELECT id,amphure_id,zip_code,name_th,name_en FROM geo_tambons WHERE amphure_id=? ORDER BY name_th`).bind(+aid)
         : db.prepare(`SELECT id,amphure_id,zip_code,name_th,name_en FROM geo_tambons ORDER BY name_th`);
-      const rs = await st.all(); return ok(rs.results || []);
+      const rs = await st.all(); return send(rs.results || []);
     }
     if (seg[1] === "seed" && (method === "POST" || method === "GET")) {
       const c = await db.prepare(`SELECT COUNT(*) c FROM geo_provinces`).first();
-      if (c?.c > 0) return ok({ seeded: false, reason: "already" });
-      const base = "https://raw.githubusercontent.com/kongvut/thai-province-data/master";
+      if (c?.c > 0) return send({ seeded: false, reason: "already" });
+      const base="https://raw.githubusercontent.com/kongvut/thai-province-data/master";
       const [p,a,t] = await Promise.all([fetch(`${base}/api_province.json`), fetch(`${base}/api_amphure.json`), fetch(`${base}/api_tambon.json`)]);
-      if (!p.ok || !a.ok || !t.ok) return fail("seed fetch failed", 500);
+      if (!p.ok || !a.ok || !t.ok) return err("seed fetch failed", 500);
       const [P,A,T] = [await p.json(), await a.json(), await t.json()];
       const insP = db.prepare(`INSERT INTO geo_provinces(id,name_th,name_en) VALUES (?,?,?)`);
       for (const r of P) await insP.bind(r.id,r.name_th,r.name_en).run();
@@ -115,62 +113,96 @@ export const onRequest = async (ctx) => {
       for (const r of A) await insA.bind(r.id,r.province_id,r.name_th,r.name_en).run();
       const insT = db.prepare(`INSERT INTO geo_tambons(id,amphure_id,zip_code,name_th,name_en) VALUES (?,?,?,?,?)`);
       for (const r of T) await insT.bind(r.id,r.amphure_id,String(r.zip_code||""),r.name_th,r.name_en).run();
-      return ok({ seeded: true, provinces: P.length, amphures: A.length, tambons: T.length });
+      return send({ seeded:true, provinces:P.length, amphures:A.length, tambons:T.length });
     }
-    return fail("geo not found", 404);
+    return err("geo not found", 404);
   }
 
-  // ---------- HR: employees ----------
+  // ===== HR: Employees =====
   if (seg[0] === "hr" && seg[1] === "employees") {
-    const table = "hr_employees", pk = await getPK(table);
-    if (method === "GET" && !idFromPath) {
+    const table="hr_employees", pk=await getPK(table);
+    if (method==="GET" && !idFromPath) {
       const rs = await db.prepare(`SELECT * FROM ${table} ORDER BY ${pk} DESC`).all();
-      return ok(rs.results || []);
+      return send(rs.results || []);
     }
-    if (method === "POST") {
-      const body = await addAuditOnCreate(table, await readBody());
-      const { sql, bind } = buildInsert(table, body);
-      const row = await db.prepare(sql).bind(...bind).first();
-      return ok(row);
+    if (method==="POST") {
+      const body=await addAuditOnCreate(table, await readBody());
+      const {sql,bind}=buildInsert(table,body);
+      const row=await db.prepare(sql).bind(...bind).first();
+      return send(row);
     }
-    if ((method === "PUT" || method === "PATCH") && idFromPath) {
-      const body = await addAuditOnUpdate(table, await readBody());
-      const { sql, bind } = buildUpdate(table, body, pk);
-      const row = await db.prepare(sql).bind(...bind, idFromPath).first();
-      return row ? ok(row) : fail("not found", 404);
+    if ((method==="PUT"||method==="PATCH") && idFromPath) {
+      const body=await addAuditOnUpdate(table, await readBody());
+      const {sql,bind}=buildUpdate(table,body,pk);
+      const row=await db.prepare(sql).bind(...bind,idFromPath).first();
+      return row?send(row):err("not found",404);
     }
-    if (method === "DELETE" && idFromPath) {
-      const row = await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
-      return row ? ok(row) : fail("not found", 404);
+    if (method==="DELETE" && idFromPath) {
+      const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
+      return row?send(row):err("not found",404);
     }
-    return fail("method not allowed", 405);
+    return err("method not allowed",405);
   }
 
-  // ---------- HR: attendance ----------
+  // ===== HR: Attendance (filters ตรงหน้า) =====
   if (seg[0] === "hr" && seg[1] === "attendance") {
-    const table = "hr_attendance", pk = await getPK(table);
-    if (method === "GET" && !idFromPath) {
-      const from=q("from"), to=q("to"), emp=q("emp"); const bind=[]; let sql=`SELECT * FROM ${table}`;
-      const wh=[]; if(from){ wh.push(`date>=?`); bind.push(from);} if(to){wh.push(`date<=?`);bind.push(to);} if(emp){wh.push(`empId=?`);bind.push(emp);}
-      if (wh.length) sql+=` WHERE `+wh.join(" AND "); sql+=` ORDER BY date DESC, ${pk} DESC`;
-      const rs=await db.prepare(sql).bind(...bind).all(); return ok(rs.results||[]);
+    const table="hr_attendance", pk=await getPK(table);
+    if (method==="GET" && !idFromPath) {
+      const p = {
+        search: q("search"), empId: q("empId"), position: q("position"),
+        leaveType: q("leaveType"), status: q("status"),
+        from: q("from"), to: q("to"),
+        limit: Math.min(+q("limit","20")||20, 1000),
+        offset: Math.max(+q("offset","0")||0, 0),
+      };
+      const bind=[]; let sql=`SELECT * FROM ${table}`; const wh=[];
+      if (p.search)   { wh.push(`(LOWER(fullName) LIKE ? OR empId LIKE ?)`); bind.push(`%${p.search.toLowerCase()}%`, `%${p.search}%`); }
+      if (p.empId)    { wh.push(`empId = ?`); bind.push(p.empId); }
+      if (p.position) { wh.push(`position = ?`); bind.push(p.position); }
+      if (p.leaveType){ wh.push(`leaveType = ?`); bind.push(p.leaveType); }
+      if (p.status)   { wh.push(`status = ?`); bind.push(p.status); }
+      if (p.from)     { wh.push(`date >= ?`); bind.push(p.from); }
+      if (p.to)       { wh.push(`date <= ?`); bind.push(p.to); }
+      if (wh.length) sql += ` WHERE ` + wh.join(" AND ");
+      const total = (await db.prepare(`SELECT COUNT(*) c FROM (${sql})`).bind(...bind).first())?.c || 0;
+      sql += ` ORDER BY date DESC, ${pk} DESC LIMIT ${p.limit} OFFSET ${p.offset}`;
+      const rs = await db.prepare(sql).bind(...bind).all();
+      return send({ data: rs.results || [], total });
     }
-    if (method === "POST") { const body=await addAuditOnCreate(table, await readBody()); const {sql,bind}=buildInsert(table,body); const row=await db.prepare(sql).bind(...bind).first(); return ok(row); }
-    if ((method === "PUT" || method === "PATCH") && idFromPath) { const body=await addAuditOnUpdate(table, await readBody()); const {sql,bind}=buildUpdate(table,body,pk); const row=await db.prepare(sql).bind(...bind,idFromPath).first(); return row?ok(row):fail("not found",404); }
-    if (method === "DELETE" && idFromPath) { const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first(); return row?ok(row):fail("not found",404); }
-    return fail("method not allowed",405);
+    if (method==="POST") {
+      const body=await addAuditOnCreate(table, await readBody());
+      const {sql,bind}=buildInsert(table,body);
+      const row=await db.prepare(sql).bind(...bind).first();
+      return send(row);
+    }
+    if ((method==="PUT"||method==="PATCH") && idFromPath) {
+      const body=await addAuditOnUpdate(table, await readBody());
+      const {sql,bind}=buildUpdate(table,body,pk);
+      const row=await db.prepare(sql).bind(...bind,idFromPath).first();
+      return row?send(row):err("not found",404);
+    }
+    if (method==="DELETE" && idFromPath) {
+      const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
+      return row?send(row):err("not found",404);
+    }
+    return err("method not allowed",405);
   }
 
-  // ---------- HR: timeclock ----------
+  // ===== HR: Timeclock =====
   if (seg[0] === "hr" && seg[1] === "timeclock") {
-    const table = "hr_timeclock", pk = await getPK(table);
-    if (method === "GET" && !idFromPath) {
-      const from=q("from"), to=q("to"), emp=q("emp"); const bind=[]; let sql=`SELECT * FROM ${table}`;
-      const wh=[]; if(from){ wh.push(`date>=?`); bind.push(from);} if(to){wh.push(`date<=?`);bind.push(to);} if(emp){wh.push(`empId=?`);bind.push(emp);}
-      if (wh.length) sql+=` WHERE `+wh.join(" AND "); sql+=` ORDER BY date DESC, ${pk} DESC`;
-      const rs=await db.prepare(sql).bind(...bind).all(); return ok(rs.results||[]);
+    const table="hr_timeclock", pk=await getPK(table);
+    if (method==="GET" && !idFromPath) {
+      const from=q("from"), to=q("to"), emp=q("emp");
+      const bind=[]; let sql=`SELECT * FROM ${table}`; const wh=[];
+      if (from) { wh.push(`date >= ?`); bind.push(from); }
+      if (to)   { wh.push(`date <= ?`); bind.push(to); }
+      if (emp)  { wh.push(`empId = ?`); bind.push(emp); }
+      if (wh.length) sql+=` WHERE `+wh.join(" AND ");
+      sql+=` ORDER BY date DESC, ${pk} DESC`;
+      const rs=await db.prepare(sql).bind(...bind).all();
+      return send({ data: rs.results || [] }); // หน้าอ่าน res.data || res
     }
-    if (method === "POST") {
+    if (method==="POST") {
       const b = await readBody();
       if (!b.hours && b.inAt && b.outAt) {
         try {
@@ -179,29 +211,40 @@ export const onRequest = async (ctx) => {
           if (Number.isFinite(a)&&Number.isFinite(c)) b.hours = Math.max(0,(c-a)/(1000*60*60));
         } catch {}
       }
-      const payload=await addAuditOnCreate(table,b); const {sql,bind}=buildInsert(table,payload); const row=await db.prepare(sql).bind(...bind).first(); return ok(row);
+      const payload=await addAuditOnCreate(table,b);
+      const {sql,bind}=buildInsert(table,payload);
+      const row=await db.prepare(sql).bind(...bind).first();
+      return send(row);
     }
-    if ((method === "PUT" || method === "PATCH") && idFromPath) { const payload=await addAuditOnUpdate(table, await readBody()); const {sql,bind}=buildUpdate(table,payload,pk); const row=await db.prepare(sql).bind(...bind,idFromPath).first(); return row?ok(row):fail("not found",404); }
-    if (method === "DELETE" && idFromPath) { const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first(); return row?ok(row):fail("not found",404); }
-    return fail("method not allowed",405);
+    if ((method==="PUT"||method==="PATCH") && idFromPath) {
+      const payload=await addAuditOnUpdate(table, await readBody());
+      const {sql,bind}=buildUpdate(table,payload,pk);
+      const row=await db.prepare(sql).bind(...bind,idFromPath).first();
+      return row?send(row):err("not found",404);
+    }
+    if (method==="DELETE" && idFromPath) {
+      const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
+      return row?send(row):err("not found",404);
+    }
+    return err("method not allowed",405);
   }
 
-  // ---------- SALES: customers ----------
+  // ===== Sales: Customers =====
   if (seg[0] === "sales" && seg[1] === "customers") {
     const table="sales_customers", pk=await getPK(table);
     if (method==="GET" && !idFromPath) {
       const search=q("search"); let sql=`SELECT * FROM ${table}`, bind=[];
       if (search) { sql+=` WHERE (LOWER(code) LIKE ? OR LOWER(firstName) LIKE ? OR LOWER(lastName) LIKE ? OR nationalId LIKE ?)`; bind=[...Array(3).fill(`%${search.toLowerCase()}%`), `%${search}%`]; }
       sql+=` ORDER BY ${pk} DESC LIMIT ${Math.min(+q("limit","100")||100,1000)} OFFSET ${Math.max(+q("offset","0")||0,0)}`;
-      const rs=await db.prepare(sql).bind(...bind).all(); return ok(rs.results||[]);
+      const rs=await db.prepare(sql).bind(...bind).all(); return send(rs.results||[]);
     }
-    if (method==="POST") { const body=await addAuditOnCreate(table, await readBody()); const {sql,bind}=buildInsert(table,body); const row=await db.prepare(sql).bind(...bind).first(); return ok(row); }
-    if ((method==="PUT"||method==="PATCH") && idFromPath) { const body=await addAuditOnUpdate(table, await readBody()); const {sql,bind}=buildUpdate(table,body,pk); const row=await db.prepare(sql).bind(...bind,idFromPath).first(); return row?ok(row):fail("not found",404); }
-    if (method==="DELETE" && idFromPath) { const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first(); return row?ok(row):fail("not found",404); }
-    return fail("method not allowed",405);
+    if (method==="POST") { const body=await addAuditOnCreate(table, await readBody()); const {sql,bind}=buildInsert(table,body); const row=await db.prepare(sql).bind(...bind).first(); return send(row); }
+    if ((method==="PUT"||method==="PATCH") && idFromPath) { const body=await addAuditOnUpdate(table, await readBody()); const {sql,bind}=buildUpdate(table,body,pk); const row=await db.prepare(sql).bind(...bind,idFromPath).first(); return row?send(row):err("not found",404); }
+    if (method==="DELETE" && idFromPath) { const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first(); return row?send(row):err("not found",404); }
+    return err("method not allowed",405);
   }
 
-  // ---------- SALES: quotations (รับ customer/items เป็น JSON string จากหน้า) ----------
+  // ===== Sales: Quotations (หน้าโพสต์ customer/items เป็น JSON string) =====
   if (seg[0] === "sales" && seg[1] === "quotations") {
     const T_HEAD="sales_quotations", T_ITEMS="sales_quotationitems";
     const headPK=await getPK(T_HEAD);
@@ -211,7 +254,7 @@ export const onRequest = async (ctx) => {
 
     if (method==="GET" && !idFromPath) {
       const rs=await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
-      return ok(rs.results||[]);
+      return send(rs.results||[]);
     }
 
     if (method==="POST") {
@@ -249,7 +292,7 @@ export const onRequest = async (ctx) => {
           await ins.bind(head.qNo, it.service||"", it.tooth||"", qty, price, line, user, user).run();
         }
       }
-      return ok(head);
+      return send(head);
     }
 
     if ((method==="PUT"||method==="PATCH") && idFromPath) {
@@ -275,7 +318,7 @@ export const onRequest = async (ctx) => {
       });
       const {sql,bind}=buildUpdate(T_HEAD, updObj, headPK);
       const head=await db.prepare(sql).bind(...bind, idFromPath).first();
-      if (!head) return fail("not found",404);
+      if (!head) return err("not found",404);
 
       await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
       if (items.length) {
@@ -289,19 +332,19 @@ export const onRequest = async (ctx) => {
           await ins.bind(head.qNo, it.service||"", it.tooth||"", qty, price, line, user, user).run();
         }
       }
-      return ok(head);
+      return send(head);
     }
 
     if (method==="DELETE" && idFromPath) {
       const head=await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
       if (head) await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-      return head?ok(head):fail("not found",404);
+      return head?send(head):err("not found",404);
     }
 
-    return fail("method not allowed",405);
+    return err("method not allowed",405);
   }
 
-  // ---------- SALES: orders (ตารางมี payload เพื่อให้หน้าเดิมทำงานได้) ----------
+  // ===== Sales: Orders (หน้าใช้ตารางนี้ + payload) =====
   if (seg[0]==="sales" && seg[1]==="orders") {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sales_orders (
@@ -319,15 +362,17 @@ export const onRequest = async (ctx) => {
     const table="sales_orders", pk=await getPK(table);
 
     if (method==="GET" && !idFromPath) {
-      const search=q("search"), from=q("from"), to=q("to");
-      const bind=[]; let sql=`SELECT * FROM ${table}`;
-      const wh=[];
+      const search=q("search"), from=q("from"), to=q("to"),
+            limit=Math.min(+q("limit","50")||50,1000), offset=Math.max(+q("offset","0")||0,0);
+      const bind=[]; let sql=`SELECT * FROM ${table}`; const wh=[];
       if (search) { wh.push(`(LOWER(docNo) LIKE ? OR LOWER(customerName) LIKE ? OR customerId LIKE ?)`); bind.push(`%${search.toLowerCase()}%`,`%${search.toLowerCase()}%`, `%${search}%`); }
       if (from)   { wh.push(`date>=?`); bind.push(from); }
       if (to)     { wh.push(`date<=?`); bind.push(to); }
       if (wh.length) sql+=` WHERE `+wh.join(" AND ");
-      sql+=` ORDER BY date DESC, ${pk} DESC LIMIT ${Math.min(+q("limit","50")||50,1000)} OFFSET ${Math.max(+q("offset","0")||0,0)}`;
-      const rs=await db.prepare(sql).bind(...bind).all(); return ok(rs.results||[]);
+      const total=(await db.prepare(`SELECT COUNT(*) c FROM (${sql})`).bind(...bind).first())?.c||0;
+      sql+=` ORDER BY date DESC, ${pk} DESC LIMIT ${limit} OFFSET ${offset}`;
+      const rs=await db.prepare(sql).bind(...bind).all();
+      return send({ data: rs.results||[], total });
     }
     if (method==="POST") {
       const b = await readBody();
@@ -340,7 +385,7 @@ export const onRequest = async (ctx) => {
       });
       const {sql,bind}=buildInsert(table,payload);
       const row=await db.prepare(sql).bind(...bind).first();
-      return ok(row);
+      return send(row);
     }
     if ((method==="PUT"||method==="PATCH") && idFromPath) {
       const b = await readBody();
@@ -353,15 +398,15 @@ export const onRequest = async (ctx) => {
       });
       const {sql,bind}=buildUpdate(table,payload,pk);
       const row=await db.prepare(sql).bind(...bind, idFromPath).first();
-      return row?ok(row):fail("not found",404);
+      return row?send(row):err("not found",404);
     }
     if (method==="DELETE" && idFromPath) {
       const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
-      return row?ok(row):fail("not found",404);
+      return row?send(row):err("not found",404);
     }
-    return fail("method not allowed",405);
+    return err("method not allowed",405);
   }
 
-  // ---------- fallback ----------
-  return fail(`No route for: ${seg.join("/")}`, 404);
+  // ----- fallback -----
+  return err(`No route for: ${seg.join("/")}`, 404);
 };
