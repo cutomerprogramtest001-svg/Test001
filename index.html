@@ -2690,101 +2690,6 @@ function timeClockApp(){
   };
 }
 
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
-
 </script>
 
 </body>
@@ -3284,101 +3189,6 @@ function timeClockApp(){
         const b = new Date(`1970-01-01T${outAt}:00`);
         return ((b-a)/(1000*60*60)).toFixed(2);
       }catch(e){ return "0.00"; }
-    }
-  };
-}
-
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
     }
   };
 }
@@ -3898,101 +3708,6 @@ function timeClockApp(){
         const b = new Date(`1970-01-01T${outAt}:00`);
         return ((b-a)/(1000*60*60)).toFixed(2);
       }catch(e){ return "0.00"; }
-    }
-  };
-}
-
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
     }
   };
 }
@@ -4528,100 +4243,6 @@ function timeClockApp(){
   };
 }
 
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
 </script>
 
 </body>
@@ -5091,100 +4712,6 @@ function timeClockApp(){
   };
 }
 
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
 </script>
 
 </body>
@@ -5714,100 +5241,7 @@ function timeClockApp(){
   };
 }
 
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
 
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
 </script>
 
 </body>
@@ -6230,100 +5664,6 @@ function timeClockApp(){
     }
   };
 }
-
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
 }
 </script>
 
@@ -6772,100 +6112,7 @@ function timeClockApp(){
   };
 }
 
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
 
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
 </script>
 
 </body>
@@ -9157,462 +8404,6 @@ function attendanceApp() {
 }
 </script>
 <script>
-    // ---------- Helpers: Thai initial ----------
-    const TH_CONSONANTS_SET = new Set("กขฃคฅฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split(""));
-    function getThaiInitial(name=""){
-      const s=(name||"").normalize("NFC").trim();
-      for(const ch of s){ if(TH_CONSONANTS_SET.has(ch)) return ch; }
-      const latin = s.match(/[A-Za-z]/);
-      if(latin) return latin[0].toUpperCase();
-      return "X";
-    }
-    const pad4 = n => String(n).padStart(4,"0");
-
-    // ---------- Alpine App ----------
-    function customerApp(){
-      return {
-        customers: [],
-        editingIndex: null,
-
-        // address datasets
-        provinces: [], amphures: [], tambons: [],
-        addr: { provinceId:"", amphureId:"", tambonId:"" },
-
-        // search dropdown
-        searchQuery: "", searchSuggestions: [], showSug: false,
-
-        // filters in table
-        filter: { keyword:"", provinceId:"" },
-
-        // medical options
-        diseaseOptions: ["โรคหัวใจ","เบาหวาน","ความดันโลหิตสูง","ไทรอยด์","โรคไต","เลือดออกง่าย/หยุดยาก","หอบหืด","ภูมิแพ้","Hepatitis","HIV"],
-        allergyOptions: ["Penicillin","Sulfa","Aspirin/NSAIDs","ยาชาเฉพาะที่ (LA)","Latex","Seafood","Iodine","Povidone-iodine"],
-
-        form: {
-          code:"", firstName:"", lastName:"", gender:"",
-          birthday:"", age:"", phone:"", email:"",
-          nationalId:"",
-          addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-          medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-        },
-
-        async init(){
-          // load customers
-          const data = localStorage.getItem('customersV2');
-          this.customers = data ? JSON.parse(data) : [];
-
-          // address data (cache 7 วัน)
-          await this.loadThaiAddresses();
-
-          // watchers
-          this.$watch('form.firstName', () => this.previewCode());
-          this.$watch('addr.provinceId', val => { this.form.addr.provinceId=val; });
-          this.$watch('addr.amphureId', val => { this.form.addr.amphureId=val; });
-          this.$watch('addr.tambonId',  val => { this.form.addr.tambonId=val; });
-
-          // first preview
-          this.previewCode();
-        },
-
-        // ---- Search dropdown ----
-        onSearchInput(){
-          const q=this.searchQuery.trim().toLowerCase();
-          if(!q){ this.showSug=false; this.searchSuggestions=[]; return; }
-          this.searchSuggestions = this.customers.filter(c =>
-            (c.firstName||"").toLowerCase().includes(q) ||
-            (c.lastName||"").toLowerCase().includes(q)  ||
-            (c.code||"").toLowerCase().includes(q)      ||
-            (c.nationalId||"").includes(q)
-          ).slice(0,10);
-          this.showSug = true;
-        },
-        pickSuggestion(c){
-          const idx = this.customers.findIndex(x => x.code===c.code);
-          if(idx>-1) this.edit(idx);
-          this.showSug=false;
-        },
-
-        // ---- Address loaders (GitHub raw) ----
-        async loadThaiAddresses(){
-          try{
-            // try cache
-            const cached = JSON.parse(localStorage.getItem('thai_addresses_cache')||"null");
-            const now = Date.now();
-            if(cached && now - cached.savedAt < 7*24*3600*1000){
-              this.provinces = cached.data;
-            }else{
-              const res = await fetch("https://raw.githubusercontent.com/kongvut/thai-province-data/master/api_province_with_amphure_tambon.json");
-              const json = await res.json();
-              this.provinces = json;
-              localStorage.setItem('thai_addresses_cache', JSON.stringify({savedAt: now, data: json}));
-            }
-          }catch(e){ console.warn("โหลดข้อมูลจังหวัดไม่สำเร็จ", e); this.provinces=[]; }
-        },
-        onProvinceChange(){
-          const p = this.provinces.find(x=> String(x.id)===String(this.addr.provinceId));
-          this.amphures = p ? (p.amphure || p.amphures || p.districts || []) : [];
-          this.tambons = [];
-          this.addr.amphureId=""; this.addr.tambonId="";
-          this.form.addr.postcode="";
-          this.form.addr.provinceName = p ? p.name_th : "";
-        },
-        onAmphureChange(){
-          const a = this.amphures.find(x=> String(x.id)===String(this.addr.amphureId));
-          this.tambons = a ? (a.tambon || a.tambons || a.subdistricts || []) : [];
-          this.addr.tambonId="";
-          this.form.addr.postcode="";
-          this.form.addr.amphureName = a ? a.name_th : "";
-        },
-        applyTambonZip(){
-          const t = this.tambons.find(x=> String(x.id)===String(this.addr.tambonId));
-          this.form.addr.tambonName = t ? t.name_th : "";
-          if(t && (t.zip_code || t.zipcode)) this.form.addr.postcode = String(t.zip_code || t.zipcode);
-        },
-
-        // ---- Age / Code ----
-        updateAge(){
-          if(!this.form.birthday){ this.form.age=""; return; }
-          const dob = new Date(this.form.birthday);
-          if(isNaN(dob)) { this.form.age=""; return; }
-          const today = new Date();
-          let age = today.getFullYear()-dob.getFullYear();
-          const m = today.getMonth()-dob.getMonth();
-          if(m<0 || (m===0 && today.getDate()<dob.getDate())) age--;
-          this.form.age = String(age);
-        },
-        previewCode(){
-          const ini = getThaiInitial(this.form.firstName);
-          if(!ini || ini==='X'){ this.form.code=""; return; }
-          this.form.code = this.nextCodeFor(ini);
-        },
-        nextCodeFor(initial){
-          const max = this.customers
-            .filter(c => (c.code||"").startsWith(initial))
-            .map(c => parseInt((c.code||"").slice(1),10))
-            .filter(n => !Number.isNaN(n))
-            .reduce((a,b)=>Math.max(a,b), 0);
-          return initial + pad4(max+1);
-        },
-
-        // ---- Validation gate for Save button ----
-        canSave(){
-          return (this.form.firstName||"").trim().length>0
-              && (this.form.nationalId||"").length===13;
-        },
-
-        // ---- CRUD ----
-        save(){
-          // validate required
-          const id = (this.form.nationalId||"").trim();
-          if(!(this.form.firstName||"").trim()){ alert("กรุณากรอกชื่อ"); return; }
-          if(id.length !== 13){ alert("National ID ต้อง 13 หลัก"); return; }
-
-          // unique National ID
-          const dup = this.customers.findIndex((c,idx)=> c.nationalId===id && idx!==this.editingIndex);
-          if(dup !== -1){ alert("National ID นี้ถูกใช้แล้ว"); return; }
-
-          // finalize code on first save
-          if(this.editingIndex===null){
-            const ini = getThaiInitial(this.form.firstName);
-            this.form.code = this.nextCodeFor(ini);
-          }
-
-          // attach readable address names
-          const p = this.provinces.find(x=> String(x.id)===String(this.addr.provinceId));
-          const a = this.amphures.find(x=> String(x.id)===String(this.addr.amphureId));
-          const t = this.tambons.find(x=> String(x.id)===String(this.addr.tambonId));
-          this.form.addr.provinceName = p ? p.name_th : "";
-          this.form.addr.amphureName = a ? a.name_th : "";
-          this.form.addr.tambonName  = t ? t.name_th : "";
-
-          if(this.editingIndex===null){
-            this.customers.push(JSON.parse(JSON.stringify(this.form)));
-          }else{
-            this.customers[this.editingIndex] = JSON.parse(JSON.stringify(this.form));
-          }
-          localStorage.setItem('customersV2', JSON.stringify(this.customers));
-          this.resetForm(true);
-        },
-        edit(i){
-          this.editingIndex = i;
-          this.form = JSON.parse(JSON.stringify(this.customers[i]));
-          // hydrate address selectors
-          this.addr.provinceId = this.form.addr.provinceId || "";
-          this.onProvinceChange();
-          this.addr.amphureId = this.form.addr.amphureId || "";
-          this.onAmphureChange();
-          this.addr.tambonId  = this.form.addr.tambonId || "";
-        },
-        remove(i){
-          if(!confirm("ยืนยันการลบลูกค้ารายนี้?")) return;
-          this.customers.splice(i,1);
-          localStorage.setItem('customersV2', JSON.stringify(this.customers));
-          if(this.editingIndex===i) this.resetForm();
-        },
-        resetForm(keepPreview=false){
-          this.editingIndex=null;
-          this.form = {
-            code:"", firstName:"", lastName:"", gender:"",
-            birthday:"", age:"", phone:"", email:"", nationalId:"",
-            addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-            medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-          };
-          this.addr = { provinceId:"", amphureId:"", tambonId:"" };
-          this.amphures=[]; this.tambons=[];
-          if(keepPreview) this.previewCode();
-        },
-
-        // ---- Table filter ----
-        filteredCustomers(){
-          const kw = this.filter.keyword.trim().toLowerCase();
-          return this.customers.filter(c=>{
-            const kwOk = !kw || [c.firstName,c.lastName,c.code,c.nationalId].some(v=>(v||"").toLowerCase().includes(kw));
-            const provOk = !this.filter.provinceId || String(c.addr?.provinceId||"")===String(this.filter.provinceId);
-            return kwOk && provOk;
-          });
-        }
-      }
-    }
-</script>
-<script>
-    function quotationApp(){
-      return {
-        // datasets
-        customers: [],
-        quotations: [],
-        editingIndex: null,
-
-        // customer search
-        customerSearch: "", customerSug: [], showSug: false,
-
-        // FDI teeth list
-        fdiTeeth: [],
-        // filters
-        flt: { keyword:"", from:"", to:"", minNet:null },
-
-        form: {
-          qNo: "", qDate: "",
-          status: "Draft",        // NEW
-          confirmedAt: "",        // NEW
-          customer: { code:"", firstName:"", lastName:"", nationalId:"", age:"", phone:"", email:"" },
-          symptoms: "",
-          items: []
-        },
-
-        init(){
-          this.customers  = JSON.parse(localStorage.getItem('customersV2') || "[]");
-          this.quotations = JSON.parse(localStorage.getItem('quotationsV2') || "[]");
-
-          const ranges = [[11,18],[21,28],[31,38],[41,48]];
-          this.fdiTeeth = []; ranges.forEach(([a,b])=>{ for(let n=a;n<=b;n++) this.fdiTeeth.push(n); });
-
-          this.form.qDate = new Date().toISOString().slice(0,10);
-          this.previewQuotationNo();
-          if(this.form.items.length===0) this.addRow();
-        },
-
-        // ---- lock helpers ----
-        locked(){ return this.form.status === 'Confirmed'; },
-        canConfirm(){
-          // ยืนยันได้เมื่อผ่าน validate และ (ยังไม่ยืนยัน) — ทั้งกรณีเพิ่มใหม่หรือกำลังแก้
-          return !this.locked() && this.form.items.length>0 && (this.form.customer.firstName||'').trim() !== '';
-        },
-
-        // ---- Customer search/pick ----
-        onCustomerSearch(){
-          const q = this.customerSearch.trim().toLowerCase();
-          if(!q){ this.customerSug=[]; this.showSug=false; return; }
-          this.customerSug = this.customers.filter(c =>
-            (c.firstName||"").toLowerCase().includes(q) ||
-            (c.lastName||"").toLowerCase().includes(q)  ||
-            (c.nationalId||"").includes(q)
-          ).slice(0,12);
-          this.showSug = true;
-        },
-        pickCustomer(c){
-          this.form.customer = {
-            code: c.code || "",
-            firstName: c.firstName || "",
-            lastName: c.lastName || "",
-            nationalId: c.nationalId || "",
-            age: c.age || this.calcAge(c.birthday),
-            phone: c.phone || "",
-            email: c.email || ""
-          };
-          this.customerSearch = `${c.firstName||''} ${c.lastName||''}`.trim();
-          this.showSug = false;
-        },
-
-        // ---- Rows ----
-        addRow(){ this.form.items.push({ service:"", tooth:"", qty:1, price:0, discount:0 }); },
-        removeRow(i){ this.form.items.splice(i,1); },
-        rowTotal(row){ const q=+row.qty||0, p=+row.price||0, d=+row.discount||0; return Math.max(0, q*p - d); },
-        sumBefore(){ return this.form.items.reduce((s,r)=> s + (+r.qty||0)*(+r.price||0), 0); },
-        sumDiscount(){ return this.form.items.reduce((s,r)=> s + (+r.discount||0), 0); },
-        netTotal(){ return Math.max(0, this.sumBefore() - this.sumDiscount()); },
-
-        // ---- Quotation No. ----
-        previewQuotationNo(){
-          const dt = this.form.qDate || new Date().toISOString().slice(0,10);
-          const ym = dt.replaceAll('-','').slice(0,6);
-          const re = new RegExp(`^Q-${ym}-(\\d{4})$`);
-          let max = 0;
-          this.quotations.forEach(q=>{ const m=(q.qNo||"").match(re); if(m){ const n=parseInt(m[1],10); if(n>max) max=n; } });
-          const next = String(max+1).padStart(4,'0');
-          this.form.qNo = `Q-${ym}-${next}`;
-        },
-
-        // ---- Save / Update ----
-        validate(){
-          if(!this.form.customer.firstName?.trim()){ alert("กรุณาเลือก/กรอกชื่อลูกค้า"); return false; }
-          if(this.form.items.length===0){ alert("กรุณาเพิ่มรายการบริการ"); return false; }
-          const anyQty = this.form.items.some(r => (+r.qty||0) > 0);
-          if(!anyQty){ alert("จำนวนอย่างน้อย 1 รายการต้องมากกว่า 0"); return false; }
-          return true;
-        },
-        save(){
-          if(this.locked()){ return; }
-          if(!this.validate()) return;
-
-          const summary = {
-            qNo: this.form.qNo,
-            qDate: this.form.qDate,
-            status: this.form.status || 'Draft',
-            confirmedAt: this.form.confirmedAt || "",
-            customer: JSON.parse(JSON.stringify(this.form.customer)),
-            symptoms: this.form.symptoms,
-            items: JSON.parse(JSON.stringify(this.form.items)),
-            before: this.sumBefore(),
-            discount: this.sumDiscount(),
-            net: this.netTotal()
-          };
-
-          if(this.editingIndex===null){
-            this.previewQuotationNo();
-            summary.qNo = this.form.qNo;
-            this.quotations.push(summary);
-          }else{
-            // keep qNo ; keep status
-            summary.qNo = this.quotations[this.editingIndex].qNo;
-            this.quotations[this.editingIndex] = summary;
-          }
-          localStorage.setItem('quotationsV2', JSON.stringify(this.quotations));
-          alert(this.editingIndex===null ? "บันทึก Quotation แล้ว" : "อัปเดต Quotation แล้ว");
-          this.resetForm();
-        },
-
-        // ---- Confirm ----
-        confirmQuote(){
-          if(this.locked()) return;
-          if(!this.validate()) return;
-
-          // ถ้าเป็นรายการใหม่ ให้สร้างก่อนแล้วค่อยยืนยัน
-          if(this.editingIndex===null){
-            this.previewQuotationNo();
-            const summary = {
-              qNo: this.form.qNo,
-              qDate: this.form.qDate,
-              status: 'Confirmed',
-              confirmedAt: new Date().toISOString(),
-              customer: JSON.parse(JSON.stringify(this.form.customer)),
-              symptoms: this.form.symptoms,
-              items: JSON.parse(JSON.stringify(this.form.items)),
-              before: this.sumBefore(),
-              discount: this.sumDiscount(),
-              net: this.netTotal()
-            };
-            this.quotations.push(summary);
-            localStorage.setItem('quotationsV2', JSON.stringify(this.quotations));
-            alert("ยืนยัน Quotation แล้ว");
-            this.resetForm();
-            return;
-          }
-
-          // ถ้ากำลังแก้ไขรายการเดิม — เปลี่ยนสถานะเป็น Confirmed
-          const q = this.quotations[this.editingIndex];
-          q.status = 'Confirmed';
-          q.confirmedAt = q.confirmedAt || new Date().toISOString();
-          // sync ฟอร์มด้วย
-          this.form.status = q.status;
-          this.form.confirmedAt = q.confirmedAt;
-          localStorage.setItem('quotationsV2', JSON.stringify(this.quotations));
-          alert("ยืนยัน Quotation แล้ว");
-        },
-
-        // ---- Edit/Delete by Q No. (ปลอดภัยเวลา filter) ----
-        editByNo(no){
-          const idx = this.quotations.findIndex(x=> x.qNo===no);
-          if(idx===-1) return;
-          const q = this.quotations[idx];
-          this.editingIndex = idx;
-          this.form = {
-            qNo: q.qNo, qDate: q.qDate,
-            status: q.status || 'Draft',
-            confirmedAt: q.confirmedAt || "",
-            customer: JSON.parse(JSON.stringify(q.customer)),
-            symptoms: q.symptoms || "",
-            items: JSON.parse(JSON.stringify(q.items||[]))
-          };
-          if(this.form.items.length===0) this.addRow();
-          this.customerSearch = `${this.form.customer.firstName||''} ${this.form.customer.lastName||''}`.trim();
-          this.showSug = false;
-          // scroll to top for form
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        },
-        deleteByNo(no){
-          const idx = this.quotations.findIndex(x=> x.qNo===no);
-          if(idx===-1) return;
-          if(!confirm("ต้องการลบ Quotation นี้หรือไม่?")) return;
-          this.quotations.splice(idx,1);
-          localStorage.setItem('quotationsV2', JSON.stringify(this.quotations));
-          if(this.editingIndex===idx) this.resetForm();
-        },
-
-        resetForm(){
-          this.editingIndex = null;
-          this.form = {
-            qNo:"", qDate: new Date().toISOString().slice(0,10),
-            status:"Draft", confirmedAt:"",
-            customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"", phone:"", email:"" },
-            symptoms:"",
-            items:[]
-          };
-          this.previewQuotationNo();
-          this.customerSearch = ""; this.showSug = false;
-          this.form.items.length===0 && this.addRow();
-        },
-
-        // ---- List filter ----
-        filteredQuotations(){
-          const kw = (this.flt.keyword||"").toLowerCase().trim();
-          const from = this.flt.from ? new Date(this.flt.from) : null;
-          const to   = this.flt.to   ? new Date(this.flt.to)   : null;
-          const minN = (this.flt.minNet==null || this.flt.minNet==="") ? null : Number(this.flt.minNet);
-
-          return this.quotations.filter(q=>{
-            const dateOk = (!from || new Date(q.qDate) >= from) && (!to || new Date(q.qDate) <= to);
-            const kwOk = !kw || [q.qNo, q.customer?.firstName, q.customer?.lastName, q.customer?.nationalId]
-              .some(v => (v||"").toString().toLowerCase().includes(kw));
-            const netOk = (minN===null) || (Number(q.net)||0) >= minN;
-            return dateOk && kwOk && netOk;
-          });
-        },
-
-        // ---- helpers ----
-        formatMoney(n){ return (Number(n)||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); },
-        calcAge(birthday){
-          if(!birthday) return "";
-          const dob = new Date(birthday); if(isNaN(dob)) return "";
-          const t = new Date();
-          let age = t.getFullYear() - dob.getFullYear();
-          const m = t.getMonth() - dob.getMonth();
-          if(m<0 || (m===0 && t.getDate()<dob.getDate())) age--;
-          return String(age);
-        }
-      }
-    }
-</script>
-<script>
     function saleOrderApp(){
       return {
         quotations: [],
@@ -10167,102 +8958,7 @@ function timeClockApp(){
     }
   };
 }
-
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
-    }
-  };
-}
-<\/script>
+</script>
 
 </body>
             </html>`;
@@ -10640,101 +9336,6 @@ function timeClockApp(){
         const b = new Date(`1970-01-01T${outAt}:00`);
         return ((b-a)/(1000*60*60)).toFixed(2);
       }catch(e){ return "0.00"; }
-    }
-  };
-}
-
-// ===== Sales » Customer =====
-function customerApp(){
-  return {
-    // minimal datasets (empty stubs; can be replaced with real Thai address datasets)
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
-    customers: _storage.get("customers", []),
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
-    form:{
-      code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
-
-    init(){ this._genCode(); },
-    _genCode(){ if(!this.form.code){ const run = String(this.customers.length+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-    onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.searchQuery.toLowerCase())).slice(0,20); },
-    pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-    onProvinceChange(){ /* no-op stub */ },
-    onAmphureChange(){ /* no-op stub */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-    updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-    canSave(){ return !!(this.form.firstName && this.form.lastName); },
-    resetForm(){
-      this.editingIndex = null;
-      this.form = { code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-      };
-      this._genCode();
-    },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.customers.push(rec); } else { this.customers.splice(this.editingIndex,1,rec); }
-      _storage.set("customers", this.customers);
-      this.resetForm();
-      alert("Saved (stub).");
-    },
-    edit(i){ this.editingIndex=i; this.form = JSON.parse(JSON.stringify(this.customers[i])); },
-    remove(i){ if(confirm("Delete?")){ this.customers.splice(i,1); _storage.set("customers", this.customers);} },
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return this.customers.filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
-  };
-}
-
-// ===== Sales » Quotation =====
-function quotationApp(){
-  return {
-    quotes: _storage.get("quotes", []),
-    editingIndex:null,
-    showSug:false, customerSug:[], customerSearch:"",
-    form:{
-      qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-      items:[], note:"", confirmed:false
-    },
-    init(){ this.previewQuotationNo(); },
-    previewQuotationNo(){
-      const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
-      const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
-      const run = String((this.quotes||[]).length + 1).padStart(3,"0");
-      this.form.qNo = `Q${ymd}-${run}`;
-    },
-    locked(){ return !!this.form.confirmed; },
-    onCustomerSearch(){ this.showSug = !!this.customerSearch; /* stub: suggestions from customers storage if exists */ 
-      const customers = _storage.get("customers", []);
-      this.customerSug = customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(this.customerSearch.toLowerCase())).slice(0,20);
-    },
-    pickCustomer(c){
-      this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-      this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
-      this.showSug = false;
-    },
-    canConfirm(){ return this.form.qNo && this.form.customer.code; },
-    confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed (stub)."); },
-    resetForm(){ this.editingIndex=null; this.form={ qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
-    save(){
-      const rec = JSON.parse(JSON.stringify(this.form));
-      if(this.editingIndex===null){ this.quotes.push(rec); } else { this.quotes.splice(this.editingIndex,1,rec); }
-      _storage.set("quotes", this.quotes);
-      alert("Saved (stub).");
     }
   };
 }
@@ -11285,72 +9886,214 @@ window.attendanceApp = function attendanceApp(){
 })();
 
   // ===== Sales » Customer =====
-  window.customerApp = function customerApp(){
+window.customerApp = function customerApp(){
+  // --- mapper helpers (scope ภายใน) ---
+  const fromRow = (row = {}) => {
+    let payload = {};
+    try { payload = row.payload ? JSON.parse(row.payload) : {}; } catch(e){ payload = {}; }
     return {
-      provinces: [], amphures: [], tambons: [],
-      addr: { provinceId:"", amphureId:"", tambonId:"" },
-      customers: [], editingIndex: null,
-      searchQuery:"", showSug:false, searchSuggestions:[],
-      filter:{ keyword:"", provinceId:"" },
-      diseaseOptions:["เบาหวาน","ความดัน","หัวใจ","หอบหืด","ไต","ตับ"],
-      allergyOptions:["ยาแก้แพ้","เพนิซิลลิน","ซีฟาโลสปอริน","NSAIDs","อาหารทะเล","ถั่ว"],
-
-      form:{
-        id:null, code:"", firstName:"", lastName:"", nationalId:"",
-        gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      id: row.id,
+      code: row.code || '',
+      firstName: row.firstName || '',
+      lastName: row.lastName || '',
+      nationalId: row.nationalId || '',
+      gender: row.gender || '',
+      birthday: row.birthday || '',
+      age: row.age || '',
+      phone: row.phone || '',
+      email: row.email || '',
+      addr: {
+        no: row.addr_no ?? payload?.addr?.no ?? '',
+        road: row.addr_road ?? payload?.addr?.road ?? '',
+        soi: row.addr_soi ?? payload?.addr?.soi ?? '',
+        provinceId: row.provinceId ?? payload?.addr?.provinceId ?? '',
+        provinceName: row.provinceName ?? payload?.addr?.provinceName ?? '',
+        amphureId: row.amphureId ?? payload?.addr?.amphureId ?? '',
+        amphureName: row.amphureName ?? payload?.addr?.amphureName ?? '',
+        tambonId: row.tambonId ?? payload?.addr?.tambonId ?? '',
+        tambonName: row.tambonName ?? payload?.addr?.tambonName ?? '',
+        postcode: row.postcode ?? payload?.addr?.postcode ?? ''
       },
-
-      async init(){ await this.reload(); this._genCode(); },
-      async reload(){ this.customers = await api('/api/sales/customers'); },
-      _genCode(){ if(!this.form.code){ const run = String((this.customers?.length||0)+1).padStart(6,"0"); this.form.code = `C${run}`; } },
-      onSearchInput(){ this.showSug = !!this.searchQuery; this.searchSuggestions = this.customers.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes((this.searchQuery||"").toLowerCase())).slice(0,20); },
-      pickSuggestion(c){ this.edit(this.customers.indexOf(c)); this.showSug=false; },
-      onProvinceChange(){}, onAmphureChange(){}, applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
-
-      updateAge(){ if(!this.form.birthday){ this.form.age=""; return; } try{ const b=new Date(this.form.birthday); const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25); this.form.age = String(Math.floor(diff)); }catch(e){ this.form.age=""; } },
-      canSave(){ return !!(this.form.firstName && this.form.lastName); },
-      resetForm(){
-        this.editingIndex = null;
-        this.form = { id:null, code:"", firstName:"", lastName:"", nationalId:"", gender:"", birthday:"", age:"", phone:"", email:"",
-          addr:{ no:"", road:"", soi:"", provinceName:"", postcode:"" },
-          medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-        };
-        this._genCode();
-      },
-      async save(){
-        const payload = { ...this.form };
-        payload.addr = JSON.stringify(payload.addr||{});
-        payload.medical = JSON.stringify(payload.medical||{});
-        if(this.editingIndex===null){
-          await api('/api/sales/customers', { method:'POST', body: payload });
-        }else{
-          const row = this.customers[this.editingIndex];
-          await api(`/api/sales/customers/${row.id}`, { method:'PUT', body: payload });
-        }
-        await this.reload(); this.resetForm(); alert("Saved.");
-      },
-      edit(i){
-        this.editingIndex=i;
-        const raw = this.customers[i];
-        const c = JSON.parse(JSON.stringify(raw));
-        try{ c.addr = c.addr ? JSON.parse(c.addr) : {}; }catch(e){ c.addr={}; }
-        try{ c.medical = c.medical ? JSON.parse(c.medical) : {}; }catch(e){ c.medical={ diseases:[], allergies:[] }; }
-        this.form = c;
-      },
-      async remove(i){ if(!confirm('Delete?')) return; const row=this.customers[i]; await api(`/api/sales/customers/${row.id}`, { method:'DELETE' }); await this.reload(); },
-      filteredCustomers(){
-        const kw = (this.filter.keyword||"").toLowerCase();
-        return this.customers.filter(c=>{
-          const okProv = !this.filter.provinceId || (c.addr && (JSON.parse(c.addr).provinceId===this.filter.provinceId));
-          if(!kw) return okProv;
-          const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-          return okProv && hay.includes(kw);
-        });
-      }
+      medical: payload?.medical || { diseases:[], diseaseOther:'', allergies:[], allergyOther:'' }
     };
   };
+
+  const toPayload = (f) => {
+    const base = {
+      code: f.code?.trim() || '',
+      firstName: f.firstName || '',
+      lastName: f.lastName || '',
+      nationalId: f.nationalId || '',
+      gender: f.gender || '',
+      birthday: f.birthday || '',
+      age: f.age || '',
+      phone: f.phone || '',
+      email: f.email || '',
+      // ที่อยู่ (ถ้าตารางคุณมีคอลัมน์เหล่านี้ใน D1)
+      addr_no: f.addr?.no || null,
+      addr_road: f.addr?.road || null,
+      addr_soi: f.addr?.soi || null,
+      provinceId: f.addr?.provinceId || null,
+      provinceName: f.addr?.provinceName || null,
+      amphureId: f.addr?.amphureId || null,
+      amphureName: f.addr?.amphureName || null,
+      tambonId: f.addr?.tambonId || null,
+      tambonName: f.addr?.tambonName || null,
+      postcode: f.addr?.postcode || null,
+      // เก็บสำรองใน payload JSON เผื่อคอลัมน์ address ไม่มีครบ
+      payload: JSON.stringify({ addr: f.addr || {}, medical: f.medical || {} })
+    };
+    // ลบ key ที่เป็น null เพื่อหลบ NOT NULL constraints (ถ้ามี)
+    Object.keys(base).forEach(k => (base[k] == null) && delete base[k]);
+    return base;
+  };
+
+  return {
+    // --- state ---
+    provinces: [], amphures: [], tambons: [],
+    addr: { provinceId:"", amphureId:"", tambonId:"" },
+
+    customers: [],
+    editingIndex: null,
+    searchQuery:"", showSug:false, searchSuggestions:[],
+    filter:{ keyword:"", provinceId:"" },
+
+    form: {
+      id:null, code:"", firstName:"", lastName:"", nationalId:"",
+      gender:"", birthday:"", age:"", phone:"", email:"",
+      addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+    },
+
+    // --- lifecycle ---
+    async init(){ await this.reload(); this._genCode(); },
+
+    // --- utils ---
+    _genCode(){
+      if (this.form.id || this.form.code) return;
+      const ymd = new Date().toISOString().slice(2,10).replace(/-/g,'');
+      const run = String((this.customers?.length||0) + 1).padStart(6,'0');
+      this.form.code = `CU${ymd}-${run}`;
+    },
+    updateAge(){
+      if(!this.form.birthday){ this.form.age=""; return; }
+      try{
+        const b = new Date(this.form.birthday);
+        const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25);
+        this.form.age = String(Math.floor(diff));
+      }catch(e){ this.form.age = ""; }
+    },
+    canSave(){ return !!(this.form.code && this.form.firstName && this.form.lastName); },
+
+    // --- API calls ---
+    async reload(){
+      try{
+        const p = new URLSearchParams();
+        if (this.filter.keyword) p.set('search', this.filter.keyword);
+        p.set('limit', 100); p.set('offset', 0);
+        const res = await api(`/api/sales/customers?${p.toString()}`);
+        const list = res?.data || res || [];
+        this.customers = list.map(fromRow);
+      }catch(err){
+        window.toast?.('โหลดลูกค้าล้มเหลว','error'); console.error(err);
+      }
+    },
+    async suggest(q){
+      const s = (q ?? this.searchQuery ?? '').trim();
+      if(!s){ this.searchSuggestions=[]; this.showSug=false; return; }
+      try{
+        const p = new URLSearchParams({ search: s, limit: 12, offset: 0 });
+        const res = await api(`/api/sales/customers?${p.toString()}`);
+        const list = res?.data || res || [];
+        this.searchSuggestions = list.map(fromRow);
+        this.showSug = true;
+      }catch(e){ this.searchSuggestions=[]; this.showSug=false; }
+    },
+
+    // --- actions ---
+    onSearchInput(){ this.suggest(this.searchQuery); },
+    pickSuggestion(c){
+      const idx = this.customers.findIndex(x => x.id === c.id);
+      if (idx >= 0) this.edit(idx);
+      this.showSug = false;
+    },
+
+    onProvinceChange(){ /* TODO: bind dataset จริง */ },
+    onAmphureChange(){ /* TODO: bind dataset จริง */ },
+    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
+
+    resetForm(){
+      this.editingIndex = null;
+      this.form = {
+        id:null, code:"", firstName:"", lastName:"", nationalId:"",
+        gender:"", birthday:"", age:"", phone:"", email:"",
+        addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      };
+      this._genCode();
+    },
+
+    async save(){
+      if(!this.canSave()){ window.toast?.('กรอก Code/ชื่อ-นามสกุล ให้ครบก่อน','error'); return; }
+      try{
+        const payload = toPayload(this.form);
+        let saved;
+        if (this.form.id){
+          saved = await api(`/api/sales/customers/${this.form.id}`, { method:'PUT', body: payload });
+        }else{
+          saved = await api(`/api/sales/customers`, { method:'POST', body: payload });
+        }
+        window.toast?.('บันทึกลูกค้าสำเร็จ','info');
+        await this.reload();
+        const id = (saved?.id) || (saved?.data?.id);
+        if (id){
+          const i = this.customers.findIndex(r => r.id === id);
+          if (i>=0) this.edit(i); else this.resetForm();
+        }else{
+          this.resetForm();
+        }
+      }catch(err){
+        const msg = (err?.message || '').toLowerCase();
+        if (msg.includes('duplicate customer code') || msg.includes('unique')){
+          window.toast?.('รหัสลูกค้าซ้ำ กรุณาเปลี่ยนรหัส','error');
+        }else{
+          window.toast?.('บันทึกล้มเหลว','error');
+        }
+        console.error(err);
+      }
+    },
+
+    edit(i){
+      this.editingIndex = i;
+      this.form = JSON.parse(JSON.stringify(this.customers[i]));
+      if(!this.form.code) this._genCode();
+    },
+
+    async remove(i){
+      const row = this.customers[i];
+      if (!row?.id) { if(confirm('ลบรายการนี้?')) { this.customers.splice(i,1); } return; }
+      if (!confirm('คุณต้องการลบลูกค้าคนนี้ใช่หรือไม่?')) return;
+      try{
+        await api(`/api/sales/customers/${row.id}`, { method:'DELETE' });
+        window.toast?.('ลบลูกค้าแล้ว','info');
+        await this.reload();
+        this.resetForm();
+      }catch(e){
+        window.toast?.('ลบไม่สำเร็จ','error'); console.error(e);
+      }
+    },
+
+    filteredCustomers(){
+      const kw = (this.filter.keyword||"").toLowerCase();
+      return (this.customers||[]).filter(c=>{
+        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
+        if(!kw) return okProv;
+        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
+        return okProv && hay.includes(kw);
+      });
+    }
+  };
+};
 
   // ===== Sales » Quotation =====
   window.quotationApp = function quotationApp(){
