@@ -9867,7 +9867,19 @@ window.customerApp = function customerApp(){
     },
 
     // --- lifecycle ---
-    async init(){ await this.reload(); this._genCode(); },
+    async init(){
+    try {
+      const pv = await api(`/api/geo/provinces`);
+      this.provinces = (pv?.data || pv || []).map(p => ({ id:p.id, name:p.nameTh || p.nameEn || String(p.id) }));
+    } catch(e) { this.provinces = []; console.error('load provinces', e); }
+  
+    if (this.form?.addr?.provinceId) {
+      await this.onProvinceChange();
+      if (this.form?.addr?.amphureId) await this.onAmphureChange();
+    }
+    await this.reload();
+    this._genCode();
+  }
 
     // --- utils ---
     _genCode(){
@@ -9918,10 +9930,37 @@ window.customerApp = function customerApp(){
       if (idx >= 0) this.edit(idx);
       this.showSug = false;
     },
-
-    onProvinceChange(){ /* TODO: bind dataset จริง */ },
-    onAmphureChange(){ /* TODO: bind dataset จริง */ },
-    applyTambonZip(){ this.form.addr.postcode = this.form.addr.postcode || ""; },
+    
+    // 2) แทนที่ onProvinceChange()
+    onProvinceChange: async function(){
+      const pid = Number(this.form?.addr?.provinceId || 0) || 0;
+      this.amphures = []; this.tambons = [];
+      this.form.addr.amphureId = ""; this.form.addr.tambonId = "";
+      if (!pid) return;
+      try{
+        const ap = await api(`/api/geo/amphures?province_id=${pid}`);
+        this.amphures = (ap?.data || ap || []).map(a => ({ id:a.id, name:a.nameTh || a.nameEn || String(a.id) }));
+      }catch(e){ this.amphures = []; console.error('load amphures', e); }
+    },
+    
+    // 3) แทนที่ onAmphureChange()
+    onAmphureChange: async function(){
+      const aid = Number(this.form?.addr?.amphureId || 0) || 0;
+      this.tambons = []; this.form.addr.tambonId = "";
+      if (!aid) return;
+      try{
+        const tb = await api(`/api/geo/tambons?amphure_id=${aid}`);
+        this.tambons = (tb?.data || tb || []).map(t => ({ id:t.id, name:t.nameTh || t.nameEn || String(t.id), zipcode:t.zipcode||"" }));
+      }catch(e){ this.tambons = []; console.error('load tambons', e); }
+    },
+    
+    // 4) แทนที่ applyTambonZip()
+    applyTambonZip(){
+      const tid = Number(this.form?.addr?.tambonId || 0) || 0;
+      if (!tid) return;
+      const t = this.tambons.find(x => Number(x.id) === tid);
+      if (t?.zipcode) this.form.addr.postcode = t.zipcode;
+    },
 
     resetForm(){
       this.editingIndex = null;
