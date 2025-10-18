@@ -3,7 +3,9 @@ export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const db = env.DB;                      // D1 binding: DB
+  const db = env.DB; // D1 binding ชื่อ DB
+  const path = url.pathname.replace(/^\/api\/?/, '').trim();
+  const [domain, resource, id] = path.split('/');
   const user = request.headers.get("x-user") || "system";
 
   // ----- helpers -----
@@ -188,18 +190,25 @@ export const onRequest = async (ctx) => {
     return err("method not allowed",405);
   }
 
-// ===== HR: Timeclock =====
+// ===== HR: Timeclock (minimal, stable) =====
 if (domain === 'hr' && resource === 'timeclock') {
   const table = 'hr_timeclock';
   const pk = 'id';
-  const idFromPath = id; // มาจาก path resolver ของคุณ เช่น const [domain,resource,id] = ...
+  const idFromPath = id;
 
-  const toLocalYMD = (d = new Date(), offsetMinutes = 7 * 60) => {
-    const t = new Date(d.getTime() + offsetMinutes * 60000);
+  const json = (data, status = 200) =>
+    new Response(JSON.stringify(data), {
+      status,
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+    });
+
+  const toLocalYMD = (d = new Date(), offsetMin = 7 * 60) => {
+    // ให้ date เป็นเวลาไทย (+07:00)
+    const t = new Date(d.getTime() + offsetMin * 60000);
     return t.toISOString().slice(0, 10);
   };
 
-  // กัน preflight เผื่อมี
+  // CORS preflight (กันไว้ก่อน)
   if (method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
@@ -211,115 +220,71 @@ if (domain === 'hr' && resource === 'timeclock') {
     });
   }
 
-  // ---------- CLOCK IN (POST) ----------
+  // ---------- POST /api/hr/timeclock  (Clock In) ----------
   if (method === 'POST') {
     try {
       const b = await request.json().catch(() => ({}));
 
-      const now = new Date();
-      const isoNow = now.toISOString();
-      const ymd = (b.date && String(b.date).trim()) || toLocalYMD();
       const empId = (b.empId || '').trim();
+      if (!empId) return json({ ok: false, error: 'empId required' }, 400);
 
-      if (!empId) {
-        return new Response(JSON.stringify({ ok: false, error: 'empId required' }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' }
-        });
-      }
+      const nowISO = new Date().toISOString();
+      const ymd = (b.date && String(b.date).trim()) || toLocalYMD();
 
-      // กันมีแถวที่ยังไม่ out ในวันเดียวกัน
+      // กันแถวค้าง (ยังไม่ออกงาน)
       const open = await db
         .prepare(
-          `SELECT ${pk} as id, inAt
-             FROM ${table}
-            WHERE empId = ? AND date = ?
-              AND (outAt IS NULL OR outAt = '' OR outAt = 'null')
-            ORDER BY ${pk} DESC
-            LIMIT 1`
+          `SELECT ${pk} AS id FROM ${table}
+           WHERE empId=? AND date=? AND (outAt IS NULL OR outAt='' OR outAt='null')
+           ORDER BY ${pk} DESC LIMIT 1`
         )
         .bind(empId, ymd)
         .first();
+      if (open) return json({ ok: false, reason: 'already_open', id: open.id }, 409);
 
-      if (open) {
-        return new Response(JSON.stringify({
-          ok: false, reason: 'already_open', id: open.id, inAt: open.inAt
-        }), { status: 409, headers: { 'Content-Type': 'application/json' } });
-      }
+      // INSERT (ไม่ใช้ RETURNING) แล้ว SELECT ตาม last_insert_rowid()
+      await db
+        .prepare(
+          `INSERT INTO ${table}
+             (empId, date, inAt, outAt, hours, note, geo, CreateDate)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(empId, ymd, nowISO, null, 0, b.note || '', b.geo || '', nowISO)
+        .run();
 
-      // --- พยายามใช้ RETURNING * ก่อน ---
-      try {
-        const inserted = await db
-          .prepare(
-            `INSERT INTO ${table}
-               (empId, date, inAt, outAt, hours, note, geo, CreateDate)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             RETURNING *;`
-          )
-          .bind(empId, ymd, isoNow, null, 0, b.note || '', b.geo || '', isoNow)
-          .first();
+      const last = await db.prepare(`SELECT last_insert_rowid() AS lid`).first();
+      const row = await db
+        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
+        .bind(last.lid)
+        .first();
 
-        return new Response(JSON.stringify({ ok: true, row: inserted }), {
-          status: 200, headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-        // Fallback: D1 บางเวอร์ชันไม่มี RETURNING
-        await db
-          .prepare(
-            `INSERT INTO ${table}
-               (empId, date, inAt, outAt, hours, note, geo, CreateDate)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?);`
-          )
-          .bind(empId, ymd, isoNow, null, 0, b.note || '', b.geo || '', isoNow)
-          .run();
-
-        const last = await db.prepare(`SELECT last_insert_rowid() AS lid;`).first();
-        const inserted = await db
-          .prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`)
-          .bind(last.lid)
-          .first();
-
-        return new Response(JSON.stringify({ ok: true, row: inserted }), {
-          status: 200, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } catch (err) {
-      console.error('[Timeclock POST] ', err);
-      return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
+      return json({ ok: true, row });
+    } catch (e) {
+      console.error('[timeclock POST]', e);
+      return json({ ok: false, error: String(e) }, 500);
     }
   }
 
-  // ---------- CLOCK OUT / UPDATE (PUT/PATCH /:id) ----------
+  // ---------- PUT/PATCH /api/hr/timeclock/:id  (Clock Out / Update) ----------
   if ((method === 'PUT' || method === 'PATCH') && idFromPath) {
     try {
       const b = await request.json().catch(() => ({}));
 
-      const current = await db
-        .prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`)
+      const cur = await db
+        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
         .bind(idFromPath)
         .first();
+      if (!cur) return json({ ok: false, error: 'not found' }, 404);
 
-      if (!current) {
-        return new Response(JSON.stringify({ ok: false, error: 'not found' }), {
-          status: 404, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-
+      // อนุญาตทั้ง outAt จาก body หรือสั่งออกเดี๋ยวนี้
       let outAtISO = b.outAt ? new Date(b.outAt).toISOString() : null;
-      const flag = b.clockOutNow;
-      if (!outAtISO && (flag === true || flag === 'true' || flag === '1')) {
+      if (!outAtISO && (b.clockOutNow === true || b.clockOutNow === 'true' || b.clockOutNow === '1')) {
         outAtISO = new Date().toISOString();
       }
 
-      const dateStr =
-        (current.date && String(current.date).trim()) ||
-        (b.date && String(b.date).trim()) ||
-        toLocalYMD();
-
-      let hoursVal = current.hours || 0;
-      const inAtISO = current.inAt || b.inAt;
+      // คำนวณชั่วโมง (ถ้ามี inAt และ outAt)
+      let hoursVal = cur.hours || 0;
+      const inAtISO = cur.inAt || b.inAt || null;
       if (inAtISO && outAtISO) {
         const a = new Date(inAtISO).getTime();
         const c = new Date(outAtISO).getTime();
@@ -328,126 +293,83 @@ if (domain === 'hr' && resource === 'timeclock') {
         }
       }
 
-      // RETURNING พร้อม fallback
-      try {
-        const updated = await db
-          .prepare(
-            `UPDATE ${table}
-                SET empId = COALESCE(?, empId),
-                    date  = COALESCE(?, date),
-                    inAt  = COALESCE(?, inAt),
-                    outAt = COALESCE(?, outAt),
-                    hours = COALESCE(?, hours),
-                    note  = COALESCE(?, note),
-                    geo   = COALESCE(?, geo)
-              WHERE ${pk} = ?
-              RETURNING *;`
-          )
-          .bind(
-            b.empId ?? null,
-            dateStr ?? null,
-            b.inAt ?? null,
-            outAtISO ?? null,
-            hoursVal ?? null,
-            b.note ?? null,
-            b.geo ?? null,
-            idFromPath
-          )
-          .first();
+      const dateStr =
+        (cur.date && String(cur.date).trim()) ||
+        (b.date && String(b.date).trim()) ||
+        toLocalYMD();
 
-        return new Response(JSON.stringify({ ok: true, row: updated }), {
-          status: 200, headers: { 'Content-Type': 'application/json' }
-        });
-      } catch (e) {
-        await db
-          .prepare(
-            `UPDATE ${table}
-                SET empId = COALESCE(?, empId),
-                    date  = COALESCE(?, date),
-                    inAt  = COALESCE(?, inAt),
-                    outAt = COALESCE(?, outAt),
-                    hours = COALESCE(?, hours),
-                    note  = COALESCE(?, note),
-                    geo   = COALESCE(?, geo)
-              WHERE ${pk} = ?;`
-          )
-          .bind(
-            b.empId ?? null,
-            dateStr ?? null,
-            b.inAt ?? null,
-            outAtISO ?? null,
-            hoursVal ?? null,
-            b.note ?? null,
-            b.geo ?? null,
-            idFromPath
-          )
-          .run();
+      await db
+        .prepare(
+          `UPDATE ${table}
+              SET empId = COALESCE(?, empId),
+                  date  = COALESCE(?, date),
+                  inAt  = COALESCE(?, inAt),
+                  outAt = COALESCE(?, outAt),
+                  hours = COALESCE(?, hours),
+                  note  = COALESCE(?, note),
+                  geo   = COALESCE(?, geo)
+            WHERE ${pk}=?`
+        )
+        .bind(
+          b.empId ?? null,
+          dateStr ?? null,
+          b.inAt ?? null,
+          outAtISO ?? null,
+          hoursVal ?? null,
+          b.note ?? null,
+          b.geo ?? null,
+          idFromPath
+        )
+        .run();
 
-        const updated = await db
-          .prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`)
-          .bind(idFromPath)
-          .first();
+      const row = await db
+        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
+        .bind(idFromPath)
+        .first();
 
-        return new Response(JSON.stringify({ ok: true, row: updated }), {
-          status: 200, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } catch (err) {
-      console.error('[Timeclock PUT] ', err);
-      return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
+      return json({ ok: true, row });
+    } catch (e) {
+      console.error('[timeclock PUT]', e);
+      return json({ ok: false, error: String(e) }, 500);
     }
   }
 
-  // ---------- LIST (GET) ----------
+  // ---------- GET /api/hr/timeclock?empId=..&from=YYYY-MM-DD&to=YYYY-MM-DD ----------
   if (method === 'GET') {
     try {
       const q = new URLSearchParams(url.search);
       const empId = (q.get('empId') || '').trim();
       const from = (q.get('from') || '').trim();
-      const to   = (q.get('to')   || '').trim();
+      const to = (q.get('to') || '').trim();
 
       let sql = `SELECT * FROM ${table} WHERE 1=1`;
-      const params = [];
-      if (empId) { sql += ` AND empId = ?`; params.push(empId); }
-      if (from)  { sql += ` AND date >= ?`; params.push(from); }
-      if (to)    { sql += ` AND date <= ?`; params.push(to); }
+      const p = [];
+      if (empId) { sql += ` AND empId=?`; p.push(empId); }
+      if (from)  { sql += ` AND date>=?`; p.push(from); }
+      if (to)    { sql += ` AND date<=?`; p.push(to); }
       sql += ` ORDER BY ${pk} DESC LIMIT 500`;
 
-      const { results } = await db.prepare(sql).bind(...params).all();
-      return new Response(JSON.stringify({ ok: true, data: results }), {
-        status: 200, headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (err) {
-      console.error('[Timeclock GET] ', err);
-      return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
+      const { results } = await db.prepare(sql).bind(...p).all();
+      return json({ ok: true, data: results });
+    } catch (e) {
+      console.error('[timeclock GET]', e);
+      return json({ ok: false, error: String(e) }, 500);
     }
   }
 
-  // ---------- DELETE ----------
+  // ---------- DELETE /api/hr/timeclock/:id ----------
   if (method === 'DELETE' && idFromPath) {
     try {
-      await db.prepare(`DELETE FROM ${table} WHERE ${pk} = ?`).bind(idFromPath).run();
-      return new Response(JSON.stringify({ ok: true }), {
-        status: 200, headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (err) {
-      console.error('[Timeclock DELETE] ', err);
-      return new Response(JSON.stringify({ ok: false, error: String(err) }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
+      await db.prepare(`DELETE FROM ${table} WHERE ${pk}=?`).bind(idFromPath).run();
+      return json({ ok: true });
+    } catch (e) {
+      console.error('[timeclock DELETE]', e);
+      return json({ ok: false, error: String(e) }, 500);
     }
   }
 
-  return new Response(JSON.stringify({ ok: false, error: 'Method not allowed' }), {
-    status: 405, headers: { 'Content-Type': 'application/json' }
-  });
+  return json({ ok: false, error: 'Method not allowed' }, 405);
 }
-
-
 
 
   // ===== Sales: Customers =====
