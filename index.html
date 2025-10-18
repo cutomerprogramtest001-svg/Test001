@@ -4681,6 +4681,16 @@ window.customerApp = function customerApp(){
         return +(Math.max(0, this.sumTotalBefore() - this.sumDiscount())).toFixed(2);
       },
 
+      // ---- formatting helper & aliases for your Totals UI ----
+      formatMoney(n){
+        const v = Number.isFinite(+n) ? +n : 0;
+        return v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      },
+      // alias ให้ตรงกับ HTML ของคุณ
+      sumBefore(){ return this.sumTotalBefore(); },
+      netTotal(){  return this.sumGrand(); },
+
+
       // --- confirm/lock ---
       canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code; },
       confirmQuote(){
