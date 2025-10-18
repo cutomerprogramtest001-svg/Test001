@@ -769,7 +769,7 @@
         </div>
         <div>
           <label class="block text-sm">จากวันที่</label>
-          <<input type="date" class="border px-3 py-2 rounded"x-model="filter.from"@input.debounce.350ms="reloadDebounced()">
+          <input type="date" class="border px-3 py-2 rounded"x-model="filter.from"@input.debounce.350ms="reloadDebounced()">
         </div>
         <div>
           <label class="block text-sm">ถึงวันที่</label>
@@ -4705,12 +4705,40 @@ window.customerApp = function customerApp(){
   },
 
     // --- utils ---
+    // --- utils ---
     _genCode(){
-      if (this.form.id || this.form.code) return;
-      const ymd = new Date().toISOString().slice(2,10).replace(/-/g,'');
-      const run = String((this.customers?.length||0) + 1).padStart(6,'0');
-      this.form.code = `CU${ymd}-${run}`;
+      // สร้างเฉพาะตอนเป็นเรคคอร์ดใหม่ หรือ code ยังว่าง/-TMP เท่านั้น
+      if (this.form?.id) return;
+      if (this.form?.code && this.form.code !== '-TMP') return;
+
+      // วันที่แบบโลคัล (Asia/Bangkok) → YYYYMMDD
+      const pad2 = n => String(n).padStart(2, '0');
+      const now  = new Date();           // ใช้เวลาเครื่อง (โลคัล)
+      const y    = now.getFullYear();
+      const m    = pad2(now.getMonth()+1);
+      const d    = pad2(now.getDate());
+      const ymd  = `${y}${m}${d}`;
+
+      // หาเลขรันสูงสุดของวันนี้จากรายการที่มีอยู่ แล้ว +1
+      const prefix = `CU${ymd}-`;
+      const list   = Array.isArray(this.customers) ? this.customers : [];
+      const todays = list
+        .map(c => c?.code)
+        .filter(code => typeof code === 'string' && code.startsWith(prefix));
+
+      let next = 1;
+      if (todays.length) {
+        const lastMax = todays
+          .map(code => parseInt(code.slice(prefix.length), 10))
+          .filter(n => Number.isInteger(n))
+          .sort((a,b) => b - a)[0];
+        next = (lastMax || 0) + 1;
+      }
+
+      const run = String(next).padStart(4, '0'); // ปรับกว้างตามต้องการ (เช่น 4 หลัก)
+      this.form.code = `${prefix}${run}`;
     },
+
     updateAge(){
       if(!this.form.birthday){ this.form.age=""; return; }
       try{
