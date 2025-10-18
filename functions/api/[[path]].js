@@ -468,16 +468,16 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
     if (items.length) {
       const ins = db.prepare(`
         INSERT INTO ${T_ITEMS}
-          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
+          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
         VALUES
-          (?,   ?,        ?,        ?,   ?,         ?,         '',     datetime('now'), datetime('now'), ?, ?)
+          (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
       `);
       for (const it of items) {
         const qty  = Number(it.qty || 0);
         const price= Number(it.price || 0);
         const disc = Number(it.discount || 0);
         const line = Math.max(0, qty * price - disc);
-        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line, user, user).run();
+        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
       }
     }
     return send(head);
