@@ -1308,6 +1308,25 @@
     <!-- รายการบริการ -->
     <div>
       <h3 class="text-lg font-semibold mb-2">📦 รายการบริการ</h3>
+      <!-- Item Presets -->
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <select class="border rounded px-3 py-2" x-model="selectedItem" :disabled="locked()">
+          <option value="">-- Select Item --</option>
+          <template x-for="p in packages" :key="p.code">
+            <option :value="p.code" x-text="`${p.code} — ${p.name}`"></option>
+          </template>
+        </select>
+
+        <button class="px-3 py-2 rounded border hover:bg-gray-50"
+                @click="addItem()" :disabled="locked() || !selectedItem">➕ Add Item</button>
+
+        <!-- quick chips -->
+        <template x-for="p in packages" :key="'chip-'+p.code">
+          <button class="px-2 py-1 text-xs rounded-full border"
+                  @click="selectedItem=p.code; addItem()" :disabled="locked()"
+                  x-text="p.code"></button>
+        </template>
+      </div>
 
       <!-- datalist -->
       <datalist id="serviceList">
@@ -1382,6 +1401,10 @@
                 <td class="px-2 py-2 border text-right font-medium" x-text="formatMoney(rowTotal(row))"></td>
                 <td class="px-2 py-2 border text-center">
                   <button class="text-red-600 hover:underline" @click="removeRow(i)" :disabled="locked()">ลบ</button>
+                </td>
+                <td class="px-2 py-2 border">
+                  <button class="text-blue-600 hover:underline"
+                          @click="edit(i)">✏️ Edit</button>
                 </td>
               </tr>
             </template>
@@ -4575,11 +4598,50 @@ window.customerApp = function customerApp(){
   // ===== Sales » Quotation =====
   window.quotationApp = function quotationApp(){
     return {
-      quotes: [], editingIndex:null, showSug:false, customerSug:[], customerSearch:"",
-      form:{ id:null, qNo:"", qDate:"", customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" }, items:[], note:"", confirmed:false },
+      // --- state ---
+      quotes: [],
+      editingIndex: null,
+      showSug: false,
+      customerSug: [],
+      customerSearch: "",
+      // item presets (เปลี่ยนชื่อ/ราคาได้)
+      packages: [
+        { code:'ITM-A', name:'Basic Care', items:[
+          { service:'ตรวจ/ปรึกษา', tooth:'ทั้งปาก', qty:1, price:0,    discount:0 }
+        ]},
+        { code:'ITM-B', name:'Cleaning', items:[
+          { service:'ขูดหินปูน/ขัดฟัน', tooth:'ทั้งปาก', qty:1, price:800,  discount:100 }
+        ]},
+        { code:'ITM-C', name:'Whitening', items:[
+          { service:'เอ็กซเรย์', tooth:'ทั้งปาก', qty:1, price:400,  discount:0 },
+          { service:'ฟอกสีฟัน', tooth:'ทั้งปาก', qty:1, price:4500, discount:500 }
+        ]},
+      ],
+      selectedItem: "",
+      form: {
+        id: null,
+        qNo: "",
+        qDate: "",
+        customer: { code:"", firstName:"", lastName:"", nationalId:"", age:"" },
+        items: [],
+        note: "",
+        confirmed: false
+      },
 
-      async init(){ await this.reload(); this.previewQuotationNo(); },
-      async reload(){ this.quotes = await api('/api/sales/quotations'); },
+      // --- lifecycle ---
+      async init(){
+        if(!this.form.qDate){
+          const d=new Date(); // default today (yyyy-mm-dd)
+          this.form.qDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        }
+        await this.reload();
+        this.previewQuotationNo();
+      },
+      async reload(){
+        this.quotes = await api('/api/sales/quotations');
+      },
+
+      // --- helpers ---
       previewQuotationNo(){
         const d = this.form.qDate ? new Date(this.form.qDate) : new Date();
         const ymd = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
@@ -4587,31 +4649,138 @@ window.customerApp = function customerApp(){
         this.form.qNo = `Q${ymd}-${run}`;
       },
       locked(){ return !!this.form.confirmed; },
+      toast(msg){ (window.toast ? window.toast(msg) : alert(msg)); },
+
+      // --- customer search ---
       onCustomerSearch(){
         this.showSug = !!this.customerSearch;
         api('/api/sales/customers').then(list=>{
           const kw = (this.customerSearch||"").toLowerCase();
-          this.customerSug = list.filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(kw)).slice(0,20);
+          this.customerSug = list
+            .filter(c => `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase().includes(kw))
+            .slice(0,20);
         });
       },
       pickCustomer(c){
-        this.form.customer = { code:c.code, firstName:c.firstName, lastName:c.lastName, nationalId:c.nationalId||"", age:c.age||"" };
-        this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`; this.showSug = false;
+        this.form.customer = {
+          code:c.code, firstName:c.firstName, lastName:c.lastName,
+          nationalId:c.nationalId||"", age:c.age||""
+        };
+        this.customerSearch = `${c.code} — ${c.firstName} ${c.lastName}`;
+        this.showSug = false;
       },
-      canConfirm(){ return this.form.qNo && this.form.customer.code; },
-      confirmQuote(){ if(!this.canConfirm()) return; this.form.confirmed = true; alert("Confirmed."); },
-      resetForm(){ this.editingIndex=null; this.form={ id:null, qNo:"", qDate:"", customer:{}, items:[], note:"", confirmed:false }; this.previewQuotationNo(); },
+
+      // --- item ops ---
+      addRow(){
+        if(this.locked()) return;
+        this.form.items.push({ service:"", tooth:"", qty:1, price:0, discount:0 });
+      },
+      removeRow(i){
+        if(this.locked()) return;
+        this.form.items.splice(i,1);
+      },
+      addItem(){
+        if(this.locked() || !this.selectedItem) return;
+        const pkg = (this.packages||[]).find(x=>x.code===this.selectedItem);
+        if(!pkg) return;
+        for(const it of (pkg.items||[])){
+          this.form.items.push({
+            service: it.service, tooth: it.tooth,
+            qty: Number(it.qty||0), price: Number(it.price||0),
+            discount: Number(it.discount||0)
+          });
+        }
+        this.toast(`Added ${pkg.code}`);
+      },
+
+      // --- totals ---
+      sumTotalBefore(){
+        return +(this.form.items||[]).reduce((s,it)=> s + (Number(it.qty||0)*Number(it.price||0)), 0).toFixed(2);
+      },
+      sumDiscount(){
+        return +(this.form.items||[]).reduce((s,it)=> s + Number(it.discount||0), 0).toFixed(2);
+      },
+      sumGrand(){
+        return +(Math.max(0, this.sumTotalBefore() - this.sumDiscount())).toFixed(2);
+      },
+
+      // --- confirm/lock ---
+      canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code; },
+      confirmQuote(){
+        if(!this.canConfirm()) return;
+        this.form.confirmed = true;
+        this.toast("Confirmed.");
+      },
+      unconfirmQuote(){ // optional: ปลดล็อก (ถ้าไม่ต้องการ ลบเมธอด/ปุ่มเรียก)
+        this.form.confirmed = false;
+        this.toast("Unconfirmed.");
+      },
+
+      // --- edit/reset ---
+      resetForm(){
+        this.editingIndex = null;
+        const d=new Date();
+        const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        this.form = {
+          id:null, qNo:"", qDate: today,
+          customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
+          items:[], note:"", confirmed:false
+        };
+        this.customerSearch = "";
+        this.previewQuotationNo();
+      },
+      async edit(i){
+        this.editingIndex = i;
+        const row = this.quotes[i];
+        if(!row || !row.id){ this.editingIndex=null; return; }
+        const full = await api(`/api/sales/quotations/${row.id}`);
+        this.form = {
+          id:        row.id || null,
+          qNo:       full.qNo || row.qNo || "",
+          qDate:     full.qDate || row.qDate || "",
+          customer:  full.customer || { code:"", firstName:"", lastName:"", nationalId:"", age:"" },
+          items:     Array.isArray(full.items) ? full.items : [],
+          note:      full.note || "",
+          confirmed: (full.status||row.status) === "Confirmed"
+        };
+        this.customerSearch = this.form.customer.code ? `${this.form.customer.code} — ${this.form.customer.firstName} ${this.form.customer.lastName}` : "";
+        this.showSug = false;
+        this.toast("โหลดใบเสนอราคามาแก้ไขแล้ว");
+      },
+
+      // --- save/delete ---
       async save(){
-        const payload = { ...this.form };
-        payload.customer = JSON.stringify(payload.customer||{});
-        payload.items = JSON.stringify(payload.items||[]);
+        // validate ง่าย ๆ
+        if(!this.form.qDate){ this.toast("กรุณาระบุวันที่ใบเสนอราคา"); return; }
+        if(!this.form.qNo){ this.previewQuotationNo(); }
+        if(!this.form.customer || !this.form.customer.code){ this.toast("กรุณาเลือกลูกค้า"); return; }
+        if(!this.form.items.length){ this.toast("กรุณาเพิ่มรายการอย่างน้อย 1 รายการ"); return; }
+
+        const payload = {
+          ...this.form,
+          customer: JSON.stringify(this.form.customer||{}),
+          items: JSON.stringify(this.form.items||[])
+        };
+
         if(this.editingIndex===null){
           await api('/api/sales/quotations', { method:'POST', body: payload });
         }else{
           const row = this.quotes[this.editingIndex];
           await api(`/api/sales/quotations/${row.id}`, { method:'PUT', body: payload });
         }
-        await this.reload(); alert("Saved.");
+        await this.reload();
+        this.toast("Saved.");
+        // ถ้ายังไม่ยืนยัน ปล่อยให้แก้ต่อได้ / ถ้าต้องการรีเซ็ตฟอร์มหลัง save ให้เปิดบรรทัดถัดไป
+        // this.resetForm();
+      },
+      async del(i){
+        const row = this.quotes[i];
+        if(!row || !row.id) return;
+        if(!confirm(`ลบใบเสนอราคา ${row.qNo || row.id}?`)) return;
+        await api(`/api/sales/quotations/${row.id}`, { method:'DELETE' });
+        await this.reload();
+        if(this.editingIndex===i) this.resetForm();
+        this.toast("Deleted.");
       }
     };
   };
