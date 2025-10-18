@@ -190,7 +190,7 @@ export const onRequest = async (ctx) => {
     return err("method not allowed",405);
   }
 
-// ===== HR: Timeclock (minimal, stable) =====
+// ===== HR: Timeclock =====
 if (domain === 'hr' && resource === 'timeclock') {
   const table = 'hr_timeclock';
   const pk = 'id';
@@ -387,105 +387,158 @@ if (domain === 'hr' && resource === 'timeclock') {
     return err("method not allowed",405);
   }
 
-  // ===== Sales: Quotations (หน้าโพสต์ customer/items เป็น JSON string) =====
-  if (seg[0] === "sales" && seg[1] === "quotations") {
-    const T_HEAD="sales_quotations", T_ITEMS="sales_quotationitems";
-    const headPK=await getPK(T_HEAD);
+// ===== Sales: Quotations (หน้าโพสต์ customer/items เป็น JSON string) =====
+if (seg[0] === "sales" && seg[1] === "quotations") {
+  const T_HEAD  = "sales_quotations";
+  const T_ITEMS = "sales_quotationitems";
+  const headPK  = await getPK(T_HEAD);
 
-    const parseCustomer = (s) => { try{ return s && typeof s==="string" ? JSON.parse(s) : (s||{}); }catch{ return {}; } };
-    const parseItems    = (s) => { try{ return s && typeof s==="string" ? JSON.parse(s) : (Array.isArray(s)?s:[]); }catch{ return []; } };
+  const parseCustomer = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
+  const parseItems    = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (Array.isArray(s) ? s : []); } catch { return []; } };
 
-    if (method==="GET" && !idFromPath) {
-      const rs=await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
-      return send(rs.results||[]);
-    }
-
-    if (method==="POST") {
-      const body = await readBody();
-      const cust = parseCustomer(body.customer);
-      const items= parseItems(body.items);
-      const totalBefore = items.reduce((s,it)=> s + (Number(it.qty||0)*Number(it.price||0)), 0);
-      const discount    = items.reduce((s,it)=> s + Number(it.discount||0), 0);
-      const grandTotal  = +(totalBefore - discount).toFixed(2);
-
-      const headObj = await addAuditOnCreate(T_HEAD, {
-        qNo: body.qNo || null,
-        qDate: body.qDate || null,
-        status: body.confirmed ? "Confirmed" : "Draft",
-        customerCode: cust.code || "",
-        customerFirstName: cust.firstName || "",
-        customerLastName: cust.lastName || "",
-        customerNationalId: cust.nationalId || "",
-        customerAge: Number(cust.age || 0),
-        totalBeforeDiscount: totalBefore,
-        discount, grandTotal,
-        note: body.note || ""
-      });
-      const {sql:sqlH, bind:bindH} = buildInsert(T_HEAD, headObj);
-      const head = await db.prepare(sqlH).bind(...bindH).first();
-
-      if (items.length) {
-        const ins = db.prepare(`
-          INSERT INTO ${T_ITEMS} (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
-          VALUES (?, ?, ?, ?, ?, ?, '', datetime('now'), datetime('now'), ?, ?)
-        `);
-        for (const it of items) {
-          const qty=Number(it.qty||0), price=Number(it.price||0), disc=Number(it.discount||0);
-          const line=Math.max(0, qty*price - disc);
-          await ins.bind(head.qNo, it.service||"", it.tooth||"", qty, price, line, user, user).run();
-        }
-      }
-      return send(head);
-    }
-
-    if ((method==="PUT"||method==="PATCH") && idFromPath) {
-      const body = await readBody();
-      const cust = parseCustomer(body.customer);
-      const items= parseItems(body.items);
-      const totalBefore = items.reduce((s,it)=> s + (Number(it.qty||0)*Number(it.price||0)), 0);
-      const discount    = items.reduce((s,it)=> s + Number(it.discount||0), 0);
-      const grandTotal  = +(totalBefore - discount).toFixed(2);
-
-      const updObj = await addAuditOnUpdate(T_HEAD, {
-        qNo: body.qNo || null,
-        qDate: body.qDate || null,
-        status: body.confirmed ? "Confirmed" : "Draft",
-        customerCode: cust.code || "",
-        customerFirstName: cust.firstName || "",
-        customerLastName: cust.lastName || "",
-        customerNationalId: cust.nationalId || "",
-        customerAge: Number(cust.age || 0),
-        totalBeforeDiscount: totalBefore,
-        discount, grandTotal,
-        note: body.note || ""
-      });
-      const {sql,bind}=buildUpdate(T_HEAD, updObj, headPK);
-      const head=await db.prepare(sql).bind(...bind, idFromPath).first();
-      if (!head) return err("not found",404);
-
-      await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-      if (items.length) {
-        const ins = db.prepare(`
-          INSERT INTO ${T_ITEMS} (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
-          VALUES (?, ?, ?, ?, ?, ?, '', datetime('now'), datetime('now'), ?, ?)
-        `);
-        for (const it of items) {
-          const qty=Number(it.qty||0), price=Number(it.price||0), disc=Number(it.discount||0);
-          const line=Math.max(0, qty*price - disc);
-          await ins.bind(head.qNo, it.service||"", it.tooth||"", qty, price, line, user, user).run();
-        }
-      }
-      return send(head);
-    }
-
-    if (method==="DELETE" && idFromPath) {
-      const head=await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
-      if (head) await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-      return head?send(head):err("not found",404);
-    }
-
-    return err("method not allowed",405);
+  // LIST: GET /api/sales/quotations
+  if (method === "GET" && !idFromPath) {
+    const rs = await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
+    return send(rs.results || []);
   }
+
+  // GET by id: /api/sales/quotations/:id  -> head + items (คำนวน discount กลับ)
+  if (method === "GET" && idFromPath) {
+    const head = await db.prepare(`SELECT * FROM ${T_HEAD} WHERE ${headPK}=?`).bind(idFromPath).first();
+    if (!head) return err("not found", 404);
+
+    const itemsRow = await db.prepare(`
+      SELECT qNo, itemCode, itemName, qty, unitPrice, lineTotal
+      FROM ${T_ITEMS}
+      WHERE qNo = ?
+      ORDER BY id ASC
+    `).bind(head.qNo).all();
+
+    const items = (itemsRow.results || []).map(r => {
+      const qty   = Number(r.qty || 0);
+      const price = Number(r.unitPrice || 0);
+      const line  = Number(r.lineTotal || 0);
+      const discount = Math.max(0, (qty * price) - line);
+      return {
+        service : r.itemCode || "",
+        tooth   : r.itemName || "",
+        qty, price,
+        discount: +discount.toFixed(2)
+      };
+    });
+
+    const customer = {
+      code       : head.customerCode || "",
+      firstName  : head.customerFirstName || "",
+      lastName   : head.customerLastName || "",
+      nationalId : head.customerNationalId || "",
+      age        : Number(head.customerAge || 0),
+    };
+
+    return send({ ...head, customer, items });
+  }
+
+  // CREATE: POST /api/sales/quotations
+  if (method === "POST") {
+    const body  = await readBody();
+    const cust  = parseCustomer(body.customer);
+    const items = parseItems(body.items);
+
+    const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+    const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+    const grandTotal  = +(totalBefore - discount).toFixed(2);
+
+    const headObj = await addAuditOnCreate(T_HEAD, {
+      qNo                    : body.qNo || null,
+      qDate                  : body.qDate || null,
+      status                 : body.confirmed ? "Confirmed" : "Draft",
+      customerCode           : cust.code || "",
+      customerFirstName      : cust.firstName || "",
+      customerLastName       : cust.lastName || "",
+      customerNationalId     : cust.nationalId || "",
+      customerAge            : Number(cust.age || 0),
+      totalBeforeDiscount    : totalBefore,
+      discount,
+      grandTotal,
+      note                   : body.note || ""
+    });
+    const { sql: sqlH, bind: bindH } = buildInsert(T_HEAD, headObj);
+    const head = await db.prepare(sqlH).bind(...bindH).first();
+
+    if (items.length) {
+      const ins = db.prepare(`
+        INSERT INTO ${T_ITEMS}
+          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
+        VALUES
+          (?,   ?,        ?,        ?,   ?,         ?,         '',     datetime('now'), datetime('now'), ?, ?)
+      `);
+      for (const it of items) {
+        const qty  = Number(it.qty || 0);
+        const price= Number(it.price || 0);
+        const disc = Number(it.discount || 0);
+        const line = Math.max(0, qty * price - disc);
+        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line, user, user).run();
+      }
+    }
+    return send(head);
+  }
+
+  // UPDATE: PUT/PATCH /api/sales/quotations/:id
+  if ((method === "PUT" || method === "PATCH") && idFromPath) {
+    const body  = await readBody();
+    const cust  = parseCustomer(body.customer);
+    const items = parseItems(body.items);
+
+    const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+    const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+    const grandTotal  = +(totalBefore - discount).toFixed(2);
+
+    const updObj = await addAuditOnUpdate(T_HEAD, {
+      qNo                    : body.qNo || null,
+      qDate                  : body.qDate || null,
+      status                 : body.confirmed ? "Confirmed" : "Draft",
+      customerCode           : cust.code || "",
+      customerFirstName      : cust.firstName || "",
+      customerLastName       : cust.lastName || "",
+      customerNationalId     : cust.nationalId || "",
+      customerAge            : Number(cust.age || 0),
+      totalBeforeDiscount    : totalBefore,
+      discount,
+      grandTotal,
+      note                   : body.note || ""
+    });
+    const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
+    const head = await db.prepare(sql).bind(...bind, idFromPath).first();
+    if (!head) return err("not found", 404);
+
+    await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+    if (items.length) {
+      const ins = db.prepare(`
+        INSERT INTO ${T_ITEMS}
+          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
+        VALUES
+          (?,   ?,        ?,        ?,   ?,         ?,         '',     datetime('now'), datetime('now'), ?, ?)
+      `);
+      for (const it of items) {
+        const qty  = Number(it.qty || 0);
+        const price= Number(it.price || 0);
+        const disc = Number(it.discount || 0);
+        const line = Math.max(0, qty * price - disc);
+        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line, user, user).run();
+      }
+    }
+    return send(head);
+  }
+
+  // DELETE: /api/sales/quotations/:id  (ลบหัว + ไอเท็ม)
+  if (method === "DELETE" && idFromPath) {
+    const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
+    if (head) await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+    return head ? send(head) : err("not found", 404);
+  }
+
+  return err("method not allowed", 405);
+}
 
   // ===== Sales: Orders (หน้าใช้ตารางนี้ + payload) =====
   if (seg[0]==="sales" && seg[1]==="orders") {
