@@ -1308,25 +1308,6 @@
     <!-- รายการบริการ -->
     <div>
       <h3 class="text-lg font-semibold mb-2">📦 รายการบริการ</h3>
-      <!-- Item Presets -->
-      <div class="mb-2 flex flex-wrap items-center gap-2">
-        <select class="border rounded px-3 py-2" x-model="selectedItem" :disabled="locked()">
-          <option value="">-- Select Item --</option>
-          <template x-for="p in packages" :key="p.code">
-            <option :value="p.code" x-text="`${p.code} — ${p.name}`"></option>
-          </template>
-        </select>
-
-        <button class="px-3 py-2 rounded border hover:bg-gray-50"
-                @click="addItem()" :disabled="locked() || !selectedItem">➕ Add Item</button>
-
-        <!-- quick chips -->
-        <template x-for="p in packages" :key="'chip-'+p.code">
-          <button class="px-2 py-1 text-xs rounded-full border"
-                  @click="selectedItem=p.code; addItem()" :disabled="locked()"
-                  x-text="p.code"></button>
-        </template>
-      </div>
 
       <!-- datalist -->
       <datalist id="serviceList">
@@ -1401,10 +1382,6 @@
                 <td class="px-2 py-2 border text-right font-medium" x-text="formatMoney(rowTotal(row))"></td>
                 <td class="px-2 py-2 border text-center">
                   <button class="text-red-600 hover:underline" @click="removeRow(i)" :disabled="locked()">ลบ</button>
-                </td>
-                <td class="px-2 py-2 border">
-                  <button class="text-blue-600 hover:underline"
-                          @click="edit(i)">✏️ Edit</button>
                 </td>
               </tr>
             </template>
