@@ -188,46 +188,194 @@ export const onRequest = async (ctx) => {
     return err("method not allowed",405);
   }
 
-  // ===== HR: Timeclock =====
-  if (seg[0] === "hr" && seg[1] === "timeclock") {
-    const table="hr_timeclock", pk=await getPK(table);
-    if (method==="GET" && !idFromPath) {
-      const from=q("from"), to=q("to"), emp=q("emp");
-      const bind=[]; let sql=`SELECT * FROM ${table}`; const wh=[];
-      if (from) { wh.push(`date >= ?`); bind.push(from); }
-      if (to)   { wh.push(`date <= ?`); bind.push(to); }
-      if (emp)  { wh.push(`empId = ?`); bind.push(emp); }
-      if (wh.length) sql+=` WHERE `+wh.join(" AND ");
-      sql+=` ORDER BY date DESC, ${pk} DESC`;
-      const rs=await db.prepare(sql).bind(...bind).all();
-      return send({ data: rs.results || [] }); // หน้าอ่าน res.data || res
+// ===== HR: Timeclock =====
+if (domain === 'hr' && resource === 'timeclock') {
+  const table = 'hr_timeclock';
+  const pk = 'id';
+  const idFromPath = id; // มาจาก path resolver ของคุณ
+
+  // helper: คืน YYYY-MM-DD ตามเวลาไทย (+07:00)
+  const toLocalYMD = (d = new Date(), offsetMinutes = 7 * 60) => {
+    const t = new Date(d.getTime() + offsetMinutes * 60000);
+    return t.toISOString().slice(0, 10);
+  };
+
+  if (method === 'POST') {
+    // ⏱ Clock In
+    const b = await request.json().catch(() => ({}));
+
+    const now = new Date();
+    const isoNow = now.toISOString();
+    const ymd = (b.date && String(b.date).trim()) || toLocalYMD();
+
+    const empId = (b.empId || '').trim();
+    if (!empId) {
+      return new Response(JSON.stringify({ error: 'empId required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
-    if (method==="POST") {
-      const b = await readBody();
-      if (!b.hours && b.inAt && b.outAt) {
-        try {
-          const a = new Date(`1970-01-01T${b.inAt}:00Z`).getTime();
-          const c = new Date(`1970-01-01T${b.outAt}:00Z`).getTime();
-          if (Number.isFinite(a)&&Number.isFinite(c)) b.hours = Math.max(0,(c-a)/(1000*60*60));
-        } catch {}
-      }
-      const payload=await addAuditOnCreate(table,b);
-      const {sql,bind}=buildInsert(table,payload);
-      const row=await db.prepare(sql).bind(...bind).first();
-      return send(row);
+
+    // กันรายการค้าง (ยังไม่ out) ของวันเดียวกัน–พนักงานเดียวกัน
+    const open = await db
+      .prepare(
+        `SELECT ${pk} as id, inAt
+           FROM ${table}
+          WHERE empId = ? AND date = ?
+            AND (outAt IS NULL OR outAt = '' OR outAt = 'null')
+          ORDER BY ${pk} DESC
+          LIMIT 1`
+      )
+      .bind(empId, ymd)
+      .first();
+
+    if (open) {
+      return new Response(JSON.stringify({
+        ok: false,
+        reason: 'already_open',
+        id: open.id,
+        inAt: open.inAt
+      }), { status: 409, headers: { 'Content-Type': 'application/json' } });
     }
-    if ((method==="PUT"||method==="PATCH") && idFromPath) {
-      const payload=await addAuditOnUpdate(table, await readBody());
-      const {sql,bind}=buildUpdate(table,payload,pk);
-      const row=await db.prepare(sql).bind(...bind,idFromPath).first();
-      return row?send(row):err("not found",404);
-    }
-    if (method==="DELETE" && idFromPath) {
-      const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
-      return row?send(row):err("not found",404);
-    }
-    return err("method not allowed",405);
+
+    // Insert แถว Clock In — บังคับ date + inAt เสมอ
+    const inserted = await db
+      .prepare(
+        `INSERT INTO ${table}
+           (empId, date, inAt, outAt, hours, note, geo, CreateDate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING *;`
+      )
+      .bind(
+        empId,
+        ymd,
+        isoNow,
+        null,                // outAt
+        0,                   // hours
+        b.note || '',
+        b.geo || '',
+        isoNow               // CreateDate
+      )
+      .first();
+
+    return new Response(JSON.stringify({ ok: true, row: inserted }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
+
+  if ((method === 'PUT' || method === 'PATCH') && idFromPath) {
+    // ⏹ Clock Out (หรืออัปเดต record)
+    const b = await request.json().catch(() => ({}));
+
+    const current = await db
+      .prepare(`SELECT * FROM ${table} WHERE ${pk} = ?`)
+      .bind(idFromPath)
+      .first();
+
+    if (!current) {
+      return new Response(JSON.stringify({ error: 'not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // แปลง outAt → ISO ถ้าส่งมา หรือถ้าขอ clockOutNow
+    let outAtISO = b.outAt ? new Date(b.outAt).toISOString() : null;
+    const flag = b.clockOutNow;
+    if (!outAtISO && (flag === true || flag === 'true' || flag === '1')) {
+      outAtISO = new Date().toISOString();
+    }
+
+    // ให้มี date เสมอ
+    const dateStr =
+      (current.date && String(current.date).trim()) ||
+      (b.date && String(b.date).trim()) ||
+      toLocalYMD();
+
+    // คำนวณชั่วโมงเมื่อมี inAt + outAt
+    let hoursVal = current.hours || 0;
+    const inAtISO = current.inAt || b.inAt;
+    if (inAtISO && outAtISO) {
+      const a = new Date(inAtISO).getTime();
+      const c = new Date(outAtISO).getTime();
+      if (Number.isFinite(a) && Number.isFinite(c) && c >= a) {
+        hoursVal = +(((c - a) / (1000 * 60 * 60)).toFixed(2));
+      }
+    }
+
+    // อัปเดตด้วย COALESCE — ถ้าไม่ได้ส่งค่ามา ให้คงค่าเดิม
+    const updated = await db
+      .prepare(
+        `UPDATE ${table}
+            SET empId     = COALESCE(?, empId),
+                date      = COALESCE(?, date),
+                inAt      = COALESCE(?, inAt),
+                outAt     = COALESCE(?, outAt),
+                hours     = COALESCE(?, hours),
+                note      = COALESCE(?, note),
+                geo       = COALESCE(?, geo)
+          WHERE ${pk} = ?
+          RETURNING *;`
+      )
+      .bind(
+        b.empId ?? null,
+        dateStr ?? null,
+        b.inAt ?? null,
+        outAtISO ?? null,
+        hoursVal ?? null,
+        b.note ?? null,
+        b.geo ?? null,
+        idFromPath
+      )
+      .first();
+
+    return new Response(JSON.stringify({ ok: true, row: updated }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // (ถ้าต้องการ) GET รายการ (เช่น ?empId=E001&from=2025-10-01&to=2025-10-31)
+  if (method === 'GET') {
+    const q = new URLSearchParams(url.search);
+    const empId = (q.get('empId') || '').trim();
+    const from = (q.get('from') || '').trim();
+    const to   = (q.get('to')   || '').trim();
+
+    let sql = `SELECT * FROM ${table} WHERE 1=1`;
+    const params = [];
+
+    if (empId) { sql += ` AND empId = ?`; params.push(empId); }
+    if (from)  { sql += ` AND date >= ?`; params.push(from); }
+    if (to)    { sql += ` AND date <= ?`; params.push(to); }
+
+    sql += ` ORDER BY ${pk} DESC LIMIT 500`;
+
+    const { results } = await db.prepare(sql).bind(...params).all();
+    return new Response(JSON.stringify({ ok: true, data: results }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // (ถ้าต้องการ) ลบ record
+  if (method === 'DELETE' && idFromPath) {
+    await db.prepare(`DELETE FROM ${table} WHERE ${pk} = ?`).bind(idFromPath).run();
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // เมธอดไม่รองรับ
+  return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+
 
   // ===== Sales: Customers =====
   if (seg[0] === "sales" && seg[1] === "customers") {
