@@ -4706,12 +4706,34 @@ window.customerApp = function customerApp(){
       netTotal(){  return this.sumGrand(); },
 
       // --- confirm/lock ---
-      canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code; },
-      confirmQuote(){
-        if(!this.canConfirm()) return;
-        this.form.confirmed = true;
-        this.toast("Confirmed.");
+      canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code && (this.form.items||[]).length; },
+
+      async confirmQuote(){
+        // ต้องมีเลข, ลูกค้า, และรายการอย่างน้อย 1 รายการ
+        if(!this.canConfirm()){ this.toast("กรุณากรอกข้อมูลให้ครบและมีรายการอย่างน้อย 1 รายการ"); return; }
+
+        // สร้าง payload โดยตั้งค่า confirmed=true
+        const payload = {
+          ...this.form,
+          confirmed: true,
+          customer: JSON.stringify(this.form.customer||{}),
+          items: JSON.stringify(this.form.items||[])
+        };
+
+        if(this.editingIndex === null){
+          // ยังไม่เคยบันทึก -> สร้างใหม่แบบ Confirmed
+          await api('/api/sales/quotations', { method:'POST', body: payload });
+        }else{
+          // มีเรคคอร์ดอยู่แล้ว -> อัปเดตเป็น Confirmed
+          const row = this.quotes[this.editingIndex];
+          await api(`/api/sales/quotations/${row.id}`, { method:'PUT', body: payload });
+        }
+
+        await this.reload();
+        this.toast("Confirmed & Saved.");
+        this.resetForm();   // ✅ ล้างฟอร์มหลัง Confirm
       },
+
       unconfirmQuote(){
         this.form.confirmed = false;
         this.toast("Unconfirmed.");
