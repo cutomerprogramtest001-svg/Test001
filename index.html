@@ -1428,44 +1428,45 @@
 
       <div class="overflow-auto mt-3">
         <table class="min-w-full text-sm border">
-          <thead class="bg-gray-100">
-            <tr>
-              <th class="px-2 py-2 border text-left">Quotation No.</th>
-              <th class="px-2 py-2 border text-left">Date</th>
-              <th class="px-2 py-2 border text-left">Customer</th>
-              <th class="px-2 py-2 border text-right">Items</th>
-              <th class="px-2 py-2 border text-right">Net Total (THB)</th>
-              <th class="px-2 py-2 border text-left">Status</th>
-              <th class="px-2 py-2 border text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-if="!visibleQuotes().length">
-              <tr>
-                <td class="px-3 py-3 text-center text-gray-500 border" colspan="8">— ไม่พบข้อมูล —</td>
-              </tr>
-            </template>
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-3 py-2 border text-left">Quotation No.</th>
+            <th class="px-3 py-2 border text-left">Date</th>
+            <th class="px-3 py-2 border text-left">Customer Code</th>
+            <th class="px-3 py-2 border text-left">Customer Name</th>
+            <th class="px-3 py-2 border text-left">National ID</th>
+            <th class="px-3 py-2 border text-left">Note</th>
+            <th class="px-3 py-2 border text-right">Net Total (THB)</th>
+            <th class="px-3 py-2 border text-left">Status</th>
+            <th class="px-3 py-2 border text-left">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-if="!visibleQuotes().length">
+            <tr><td class="px-3 py-3 text-center text-gray-500 border" colspan="9">— ไม่พบข้อมูล —</td></tr>
+          </template>
 
-            <template x-for="(r,i) in visibleQuotes()" :key="r.id">
-              <tr class="hover:bg-gray-50">
-                <td class="px-3 py-2 border text-right" x-text="r.id"></td>
-                <td class="px-3 py-2 border font-medium" x-text="r.qNo"></td>
-                <td class="px-3 py-2 border" x-text="r.qDate || '-'"></td>
-                <td class="px-3 py-2 border">
-                  <span class="px-2 py-1 rounded text-xs"
-                        :class="r.status==='Confirmed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
-                        x-text="r.status || 'Draft'"></span>
-                </td>
-                <td class="px-3 py-2 border" x-text="r.customerCode"></td>
-                <td class="px-3 py-2 border" x-text="(r.customerFirstName||'') + ' ' + (r.customerLastName||'')"></td>
-                <td class="px-3 py-2 border text-right" x-text="r.grandTotal==null ? '-' : r.grandTotal.toLocaleString()"></td>
-                <td class="px-3 py-2 border whitespace-nowrap">
-                  <button class="text-blue-600 hover:underline mr-3" @click="edit(i)">✏️ Edit</button>
-                  <button class="text-red-600 hover:underline" @click="del(i)">🗑️ Delete</button>
-                </td>
-              </tr>
-            </template>
-          </tbody>
+          <template x-for="r in visibleQuotes()" :key="r.id">
+            <tr class="hover:bg-gray-50">
+              <td class="px-3 py-2 border font-medium" x-text="r.qNo"></td>
+              <td class="px-3 py-2 border" x-text="r.qDate || '-'"></td>
+              <td class="px-3 py-2 border" x-text="r.customerCode"></td>
+              <td class="px-3 py-2 border" x-text="(r.customerFirstName||'') + ' ' + (r.customerLastName||'')"></td>
+              <td class="px-3 py-2 border" x-text="r.customerNationalId || '-'"></td>
+              <td class="px-3 py-2 border truncate max-w-[240px]" :title="r.note" x-text="r.note || '-'"></td>
+              <td class="px-3 py-2 border text-right" x-text="r.grandTotal==null ? '-' : r.grandTotal.toLocaleString()"></td>
+              <td class="px-3 py-2 border">
+                <span class="px-2 py-1 rounded text-xs"
+                      :class="r.status==='Confirmed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
+                      x-text="r.status"></span>
+              </td>
+              <td class="px-3 py-2 border whitespace-nowrap">
+                <button class="text-blue-600 hover:underline mr-3" @click="editById(r.id)">✏️ Edit</button>
+                <button class="text-red-600 hover:underline" @click="del(visibleQuotes().findIndex(x=>x.id===r.id))">Delete</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
 
         </table>
       </div>
