@@ -1440,37 +1440,33 @@
             </tr>
           </thead>
           <tbody>
-            <!-- ใช้ qNo เป็น key/อ้างอิง ป้องกันสับสนเมื่อกรอง -->
-            <template x-for="q in filteredQuotations()" :key="q.qNo">
-              <tr class="hover:bg-gray-50 align-top">
-                <td class="px-2 py-2 border"><div class="font-medium" x-text="q.qNo"></div></td>
-                <td class="px-2 py-2 border" x-text="q.qDate"></td>
-                <td class="px-2 py-2 border">
-                  <div x-text="`${q.customer.firstName||''} ${q.customer.lastName||''}`.trim() || '-'"></div>
-                  <div class="text-xs text-gray-500" x-text="q.customer.nationalId || ''"></div>
+            <template x-if="!visibleQuotes().length">
+              <tr>
+                <td class="px-3 py-3 text-center text-gray-500 border" colspan="8">— ไม่พบข้อมูล —</td>
+              </tr>
+            </template>
+
+            <template x-for="(r,i) in visibleQuotes()" :key="r.id">
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-2 border text-right" x-text="r.id"></td>
+                <td class="px-3 py-2 border font-medium" x-text="r.qNo"></td>
+                <td class="px-3 py-2 border" x-text="r.qDate || '-'"></td>
+                <td class="px-3 py-2 border">
+                  <span class="px-2 py-1 rounded text-xs"
+                        :class="r.status==='Confirmed' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'"
+                        x-text="r.status || 'Draft'"></span>
                 </td>
-                <td class="px-2 py-2 border text-right" x-text="q.items.length"></td>
-                <td class="px-2 py-2 border text-right" x-text="formatMoney(q.net)"></td>
-                <td class="px-2 py-2 border">
-                  <span class="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs"
-                        :class="q.status==='Confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
-                    <span class="w-1.5 h-1.5 rounded-full"
-                          :class="q.status==='Confirmed' ? 'bg-emerald-600' : 'bg-gray-400'"></span>
-                    <span x-text="q.status || 'Draft'"></span>
-                  </span>
-                </td>
-                <td class="px-2 py-2 border text-center space-x-3">
-                  <button class="text-blue-600 hover:underline" @click="editByNo(q.qNo)">
-                    <span x-text="q.status==='Confirmed' ? 'View' : 'View/Edit'"></span>
-                  </button>
-                  <button class="text-red-600 hover:underline" @click="deleteByNo(q.qNo)">Delete</button>
+                <td class="px-3 py-2 border" x-text="r.customerCode"></td>
+                <td class="px-3 py-2 border" x-text="(r.customerFirstName||'') + ' ' + (r.customerLastName||'')"></td>
+                <td class="px-3 py-2 border text-right" x-text="r.grandTotal==null ? '-' : r.grandTotal.toLocaleString()"></td>
+                <td class="px-3 py-2 border whitespace-nowrap">
+                  <button class="text-blue-600 hover:underline mr-3" @click="edit(i)">✏️ Edit</button>
+                  <button class="text-red-600 hover:underline" @click="del(i)">🗑️ Delete</button>
                 </td>
               </tr>
             </template>
-            <tr x-show="filteredQuotations().length===0">
-              <td colspan="7" class="text-center text-gray-500 p-4">ไม่พบข้อมูล</td>
-            </tr>
           </tbody>
+
         </table>
       </div>
     </div>
@@ -4615,8 +4611,10 @@ window.customerApp = function customerApp(){
         this.previewQuotationNo();
       },
       async reload(){
-        this.quotes = await api('/api/sales/quotations');
+        const res = await api('/api/sales/quotations');
+        this.quotes = Array.isArray(res) ? res : (res?.data || []);
       },
+
 
       // --- helpers ---
       previewQuotationNo(){
@@ -4680,6 +4678,24 @@ window.customerApp = function customerApp(){
       sumGrand(){
         return +(Math.max(0, this.sumTotalBefore() - this.sumDiscount())).toFixed(2);
       },
+
+      visibleQuotes(){
+        const arr = Array.isArray(this.quotes) ? this.quotes : [];
+        // map ป้องกันคอลัมน์ null และเรียงจาก id ล่าสุดก่อน
+        return arr
+          .map(r => ({
+            id: r.id,
+            qNo: r.qNo || '',
+            qDate: r.qDate || '',
+            status: r.status || '',
+            customerCode: r.customerCode || '',
+            customerFirstName: r.customerFirstName || '',
+            customerLastName: r.customerLastName || '',
+            grandTotal: r.grandTotal ?? null
+          }))
+          .sort((a,b)=> (b.id||0) - (a.id||0));
+      },
+
 
       // ---- formatting helper & aliases for your Totals UI ----
       formatMoney(n){
