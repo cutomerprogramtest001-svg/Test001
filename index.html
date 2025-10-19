@@ -4351,371 +4351,402 @@ window.attendanceApp = function attendanceApp(){
   };
 })();
 
-  // ===== Sales » Customer =====
-  window.customerApp = function customerApp(){
-    // --- mapper helpers (scope ภายใน) ---
-    const fromRow = (row = {}) => {
-      let payload = {};
-      try { payload = row.payload ? JSON.parse(row.payload) : {}; } catch(e){ payload = {}; }
-
-      return {
-        id: row.id,
-        code: row.code || '',
-        // ------- Individual fields -------
-        firstName: row.firstName || '',
-        lastName: row.lastName || '',
-        nationalId: row.nationalId || '',
-        gender: row.gender || '',
-        birthday: row.birthday || '',
-        age: row.age || '',
-        phone: row.phone || '',
-        email: row.email || '',
-
-        // ------- Corporate fields -------
-        companyName  : row.companyName   ?? payload?.companyName   ?? '',
-        taxId        : row.taxId         ?? payload?.taxId         ?? '',
-        branchCode   : row.branchCode    ?? payload?.branchCode    ?? '',
-        contactPerson: row.contactPerson ?? payload?.contactPerson ?? '',
-        contactPhone : row.contactPhone  ?? payload?.contactPhone  ?? '',
-
-        // ------- Payment/Credit -------
-        customerType : row.customerType  ?? payload?.customerType  ?? 'individual', // 'individual'|'corporate'
-        paymentType  : row.paymentType   ?? payload?.paymentType   ?? 'cash',       // 'cash'|'credit'
-        creditDays   : (row.creditDays ?? payload?.creditDays ?? 0) * 1,
-        creditLimit  : (row.creditLimit ?? payload?.creditLimit ?? 0) * 1,
-
-        // ------- Address -------
-        addr: {
-          no:            row.addr_no       ?? payload?.addr?.no       ?? '',
-          road:          row.addr_road     ?? payload?.addr?.road     ?? '',
-          soi:           row.addr_soi      ?? payload?.addr?.soi      ?? '',
-          provinceId:    row.provinceId    ?? payload?.addr?.provinceId ?? '',
-          provinceName:  row.provinceName  ?? payload?.addr?.provinceName ?? '',
-          amphureId:     row.amphureId     ?? payload?.addr?.amphureId ?? '',
-          amphureName:   row.amphureName   ?? payload?.addr?.amphureName ?? '',
-          tambonId:      row.tambonId      ?? payload?.addr?.tambonId ?? '',
-          tambonName:    row.tambonName    ?? payload?.addr?.tambonName ?? '',
-          postcode:      row.postcode      ?? payload?.addr?.postcode ?? ''
-        },
-
-        // ------- Medical (สำรองใน payload) -------
-        medical: payload?.medical || { diseases:[], diseaseOther:'', allergies:[], allergyOther:'' }
-      };
-    };
-
-    const toPayload = (f) => {
-      const base = {
-        // ------- Common / Individual -------
-        code: f.code?.trim() || '',
-        firstName: f.firstName || '',
-        lastName:  f.lastName  || '',
-        nationalId: f.nationalId || '',
-        gender: f.gender || '',
-        birthday: f.birthday || '',
-        age: f.age || '',
-        phone: f.phone || '',
-        email: f.email || '',
-
-        // ------- Corporate columns in table -------
-        companyName  : f.companyName   || null,
-        taxId        : f.taxId         || null,
-        branchCode   : f.branchCode    || null,
-        contactPerson: f.contactPerson || null,
-        contactPhone : f.contactPhone  || null,
-
-        // ------- Payment/Credit columns in table -------
-        customerType : f.customerType  || 'individual',
-        paymentType  : f.paymentType   || 'cash',
-        creditDays   : Number(f.creditDays || 0),
-        creditLimit  : Number(f.creditLimit || 0),
-
-        // ------- Address columns in table -------
-        addr_no:        f.addr?.no           || null,
-        addr_road:      f.addr?.road         || null,
-        addr_soi:       f.addr?.soi          || null,
-        provinceId:     f.addr?.provinceId   || null,
-        provinceName:   f.addr?.provinceName || null,
-        amphureId:      f.addr?.amphureId    || null,
-        amphureName:    f.addr?.amphureName  || null,
-        tambonId:       f.addr?.tambonId     || null,
-        tambonName:     f.addr?.tambonName   || null,
-        postcode:       f.addr?.postcode     || null,
-
-        // ------- Keep extra as JSON payload -------
-        payload: JSON.stringify({
-          addr: f.addr || {},
-          medical: f.medical || {},
-          // ซ้ำข้อมูลหลักไว้เล็กน้อยเพื่อ backward-compat
-          customerType: f.customerType,
-          paymentType:  f.paymentType,
-          creditDays:   Number(f.creditDays || 0),
-          creditLimit:  Number(f.creditLimit || 0),
-          companyName:  f.companyName || '',
-          taxId:        f.taxId || '',
-          branchCode:   f.branchCode || '',
-          contactPerson:f.contactPerson || '',
-          contactPhone: f.contactPhone || ''
-        })
-      };
-      // ลบ key ที่เป็น null เพื่อหลบ NOT NULL constraints
-      Object.keys(base).forEach(k => (base[k] == null) && delete base[k]);
-      return base;
-    };
+// ===== Sales » Customer =====
+window.customerApp = function customerApp(){
+  // --- mapper helpers (scope ภายใน) ---
+  const fromRow = (row = {}) => {
+    let payload = {};
+    try { payload = row.payload ? JSON.parse(row.payload) : {}; } catch(e){ payload = {}; }
 
     return {
-      // --- state ---
-      provinces: [], amphures: [], tambons: [],
-      addr: { provinceId:"", amphureId:"", tambonId:"" },
+      id: row.id,
+      code: row.code || '',
+      // ------- Individual fields -------
+      firstName: row.firstName || '',
+      lastName: row.lastName || '',
+      nationalId: row.nationalId || '',
+      gender: row.gender || '',
+      birthday: row.birthday || '',
+      age: row.age || '',
+      phone: row.phone || '',
+      email: row.email || '',
 
-      customers: [],
-      editingIndex: null,
-      searchQuery:"", showSug:false, searchSuggestions:[],
-      filter:{ keyword:"", provinceId:"" },
+      // ------- Corporate fields -------
+      companyName  : row.companyName   ?? payload?.companyName   ?? '',
+      taxId        : row.taxId         ?? payload?.taxId         ?? '',
+      branchCode   : row.branchCode    ?? payload?.branchCode    ?? '',
+      contactPerson: row.contactPerson ?? payload?.contactPerson ?? '',
+      contactPhone : row.contactPhone  ?? payload?.contactPhone  ?? '',
 
-      form: {
-        id:null, code:"",
-        // individual
-        firstName:"", lastName:"", nationalId:"",
-        gender:"", birthday:"", age:"", phone:"", email:"",
-        // payment/credit
-        customerType:'individual',   // 'individual'|'corporate'
-        paymentType :'cash',         // 'cash'|'credit'
-        creditDays  :0,
-        creditLimit :0,
-        // corporate
-        companyName:"", taxId:"", branchCode:"",
-        contactPerson:"", contactPhone:"",
-        // address
-        addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-        // extra
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      // ------- Payment/Credit -------
+      customerType : row.customerType  ?? payload?.customerType  ?? 'individual', // 'individual'|'corporate'
+      paymentType  : row.paymentType   ?? payload?.paymentType   ?? 'cash',       // 'cash'|'credit'
+      creditDays   : (row.creditDays ?? payload?.creditDays ?? 0) * 1,
+      creditLimit  : (row.creditLimit ?? payload?.creditLimit ?? 0) * 1,
+
+      // ------- Address -------
+      addr: {
+        no:            row.addr_no       ?? payload?.addr?.no       ?? '',
+        road:          row.addr_road     ?? payload?.addr?.road     ?? '',
+        soi:           row.addr_soi      ?? payload?.addr?.soi      ?? '',
+        provinceId:    row.provinceId    ?? payload?.addr?.provinceId ?? '',
+        provinceName:  row.provinceName  ?? payload?.addr?.provinceName ?? '',
+        amphureId:     row.amphureId     ?? payload?.addr?.amphureId ?? '',
+        amphureName:   row.amphureName   ?? payload?.addr?.amphureName ?? '',
+        tambonId:      row.tambonId      ?? payload?.addr?.tambonId ?? '',
+        tambonName:    row.tambonName    ?? payload?.addr?.tambonName ?? '',
+        postcode:      row.postcode      ?? payload?.addr?.postcode ?? ''
       },
 
-      // --- derived flags for UI ---
-      get isCorporate(){ return this.form.customerType === 'corporate'; },
-      get isCredit(){ return this.form.paymentType === 'credit'; },
-
-      // --- lifecycle ---
-      async init(){
-        try {
-          const pv = await api(`/api/geo/provinces`);
-          this.provinces = (pv?.data || pv || []).map(p => ({ id:p.id, name:p.nameTh || p.nameEn || String(p.id) }));
-        } catch(e) { this.provinces = []; console.error('load provinces', e); }
-
-        if (this.form?.addr?.provinceId) {
-          await this.onProvinceChange();
-          if (this.form?.addr?.amphureId) await this.onAmphureChange();
-        }
-        await this.reload();
-        this._genCode();
-      },
-
-      // --- utils ---
-      _genCode(){
-        // สร้างเฉพาะตอนเป็นเรคคอร์ดใหม่ หรือ code ยังว่าง/-TMP เท่านั้น
-        if (this.form?.id) return;
-        if (this.form?.code && this.form.code !== '-TMP') return;
-
-        const pad2 = n => String(n).padStart(2, '0');
-        const now  = new Date();
-        const y    = now.getFullYear();
-        const m    = pad2(now.getMonth()+1);
-        const d    = pad2(now.getDate());
-        const ymd  = `${y}${m}${d}`;
-
-        const prefix = `CU${ymd}-`;
-        const list   = Array.isArray(this.customers) ? this.customers : [];
-        const todays = list.map(c => c?.code).filter(code => typeof code === 'string' && code.startsWith(prefix));
-
-        let next = 1;
-        if (todays.length) {
-          const lastMax = todays
-            .map(code => parseInt(code.slice(prefix.length), 10))
-            .filter(n => Number.isInteger(n))
-            .sort((a,b) => b - a)[0];
-          next = (lastMax || 0) + 1;
-        }
-        const run = String(next).padStart(4, '0');
-        this.form.code = `${prefix}${run}`;
-      },
-
-      updateAge(){
-        if(!this.form.birthday){ this.form.age=""; return; }
-        try{
-          const b = new Date(this.form.birthday);
-          const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25);
-          this.form.age = String(Math.floor(diff));
-        }catch(e){ this.form.age = ""; }
-      },
-
-      canSave(){
-        if (!this.form.code) return false;
-        if (this.isCorporate) {
-          return !!(this.form.companyName && this.form.taxId);
-        } else {
-          return !!(this.form.firstName && this.form.lastName);
-        }
-      },
-
-      _editNormalize(){
-        const f = this.form;
-        if (!f.customerType) f.customerType = 'individual';
-        if (!f.paymentType)  f.paymentType  = 'cash';
-        if (f.creditDays == null)  f.creditDays  = 0;
-        if (f.creditLimit == null) f.creditLimit = 0;
-        ['companyName','taxId','branchCode','contactPerson','contactPhone']
-          .forEach(k => { if (f[k] == null) f[k] = ''; });
-      },
-
-      // --- API calls ---
-      async reload(){
-        try{
-          const p = new URLSearchParams();
-          if (this.filter.keyword) p.set('search', this.filter.keyword);
-          p.set('limit', 100); p.set('offset', 0);
-          const res = await api(`/api/sales/customers?${p.toString()}`);
-          const list = res?.data || res || [];
-          this.customers = list.map(fromRow);
-        }catch(err){
-          window.toast?.('โหลดลูกค้าล้มเหลว','error'); console.error(err);
-        }
-      },
-
-      async suggest(q){
-        const s = (q ?? this.searchQuery ?? '').trim();
-        if(!s){ this.searchSuggestions=[]; this.showSug=false; return; }
-        try{
-          const p = new URLSearchParams({ search: s, limit: 12, offset: 0 });
-          const res = await api(`/api/sales/customers?${p.toString()}`);
-          const list = res?.data || res || [];
-          this.searchSuggestions = list.map(fromRow);
-          this.showSug = true;
-        }catch(e){ this.searchSuggestions=[]; this.showSug=false; }
-      },
-
-      // --- actions ---
-      onSearchInput(){ this.suggest(this.searchQuery); },
-      pickSuggestion(c){
-        const idx = this.customers.findIndex(x => x.id === c.id);
-        if (idx >= 0) this.edit(idx);
-        this.showSug = false;
-      },
-
-      onProvinceChange: async function(){
-        const pid = Number(this.form?.addr?.provinceId || 0) || 0;
-        this.amphures = []; this.tambons = [];
-        this.form.addr.amphureId = ""; this.form.addr.tambonId = "";
-        if (!pid) return;
-        try{
-          const ap = await api(`/api/geo/amphures?province_id=${pid}`);
-          this.amphures = (ap?.data || ap || []).map(a => ({ id:a.id, name:a.nameTh || a.nameEn || String(a.id) }));
-        }catch(e){ this.amphures = []; console.error('load amphures', e); }
-      },
-
-      onAmphureChange: async function(){
-        const aid = Number(this.form?.addr?.amphureId || 0) || 0;
-        this.tambons = []; this.form.addr.tambonId = "";
-        if (!aid) return;
-        try{
-          const tb = await api(`/api/geo/tambons?amphure_id=${aid}`);
-          this.tambons = (tb?.data || tb || []).map(t => ({ id:t.id, name:t.nameTh || t.nameEn || String(t.id), zipcode:t.zipcode||"" }));
-        }catch(e){ this.tambons = []; console.error('load tambons', e); }
-      },
-
-      applyTambonZip(){
-        const tid = Number(this.form?.addr?.tambonId || 0) || 0;
-        if (!tid) return;
-        const t = this.tambons.find(x => Number(x.id) === tid);
-        if (t?.zipcode) this.form.addr.postcode = t.zipcode;
-      },
-
-      resetForm(){
-        this.editingIndex = null;
-        this.form = {
-          id:null, code:"",
-          firstName:"", lastName:"", nationalId:"",
-          gender:"", birthday:"", age:"", phone:"", email:"",
-          customerType:'individual', paymentType:'cash', creditDays:0, creditLimit:0,
-          companyName:"", taxId:"", branchCode:"", contactPerson:"", contactPhone:"",
-          addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-          medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-        };
-        this._genCode();
-      },
-
-      async save(){
-        if(!this.canSave()){ window.toast?.('กรอกข้อมูลให้ครบก่อนบันทึก','error'); return; }
-        if (this.isCredit) {
-          const d = Number(this.form.creditDays||0);
-          const lim = Number(this.form.creditLimit||0);
-          if (d <= 0) { window.toast?.('กรุณาระบุเครดิต (วัน) > 0','error'); return; }
-          if (lim <= 0){ window.toast?.('กรุณาระบุวงเงินเครดิต > 0','error'); return; }
-        }
-        if (this.isCorporate) {
-          if (!this.form.companyName?.trim()){ window.toast?.('กรุณากรอกชื่อบริษัท','error'); return; }
-          if (!this.form.taxId?.trim()){ window.toast?.('กรุณากรอกเลขผู้เสียภาษี','error'); return; }
-        }
-
-        try{
-          const payload = toPayload(this.form);
-          let saved;
-          if (this.form.id){
-            saved = await api(`/api/sales/customers/${this.form.id}`, { method:'PUT', body: payload });
-          }else{
-            saved = await api(`/api/sales/customers`, { method:'POST', body: payload });
-          }
-          window.toast?.('บันทึกลูกค้าสำเร็จ','info');
-          await this.reload();
-          const id = (saved?.id) || (saved?.data?.id);
-          if (id){
-            const i = this.customers.findIndex(r => r.id === id);
-            if (i>=0) this.edit(i); else this.resetForm();
-          }else{
-            this.resetForm();
-          }
-        }catch(err){
-          const msg = (err?.message || '').toLowerCase();
-          if (msg.includes('duplicate customer code') || msg.includes('unique')){
-            window.toast?.('รหัสลูกค้าซ้ำ กรุณาเปลี่ยนรหัส','error');
-          }else{
-            window.toast?.('บันทึกล้มเหลว','error');
-          }
-          console.error(err);
-        }
-      },
-
-      edit(i){
-        this.editingIndex = i;
-        this.form = JSON.parse(JSON.stringify(this.customers[i]));
-        this._editNormalize();
-        if(!this.form.code) this._genCode();
-      },
-
-      async remove(i){
-        const row = this.customers[i];
-        if (!row?.id) { if(confirm('ลบรายการนี้?')) { this.customers.splice(i,1); } return; }
-        if (!confirm('คุณต้องการลบลูกค้าคนนี้ใช่หรือไม่?')) return;
-        try{
-          await api(`/api/sales/customers/${row.id}`, { method:'DELETE' });
-          window.toast?.('ลบลูกค้าแล้ว','info');
-          await this.reload();
-          this.resetForm();
-        }catch(e){
-          window.toast?.('ลบไม่สำเร็จ','error'); console.error(e);
-        }
-      },
-
-      filteredCustomers(){
-        const kw = (this.filter.keyword||"").toLowerCase();
-        return (this.customers||[]).filter(c=>{
-          const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-          if(!kw) return okProv;
-          const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.companyName||''} ${c.nationalId||""}`.toLowerCase();
-          return okProv && hay.includes(kw);
-        });
-      }
+      // ------- Medical (สำรองใน payload) -------
+      medical: payload?.medical || { diseases:[], diseaseOther:'', allergies:[], allergyOther:'' }
     };
   };
+
+  const toPayload = (f) => {
+    const base = {
+      // ------- Common / Individual -------
+      code: f.code?.trim() || '',
+      firstName: f.firstName || '',
+      lastName:  f.lastName  || '',
+      nationalId: f.nationalId || '',
+      gender: f.gender || '',
+      birthday: f.birthday || '',
+      age: f.age || '',
+      phone: f.phone || '',
+      email: f.email || '',
+
+      // ------- Corporate columns in table -------
+      companyName  : f.companyName   || null,
+      taxId        : f.taxId         || null,
+      branchCode   : f.branchCode    || null,
+      contactPerson: f.contactPerson || null,
+      contactPhone : f.contactPhone  || null,
+
+      // ------- Payment/Credit columns in table -------
+      customerType : f.customerType  || 'individual',
+      paymentType  : f.paymentType   || 'cash',
+      creditDays   : Number(f.creditDays || 0),
+      creditLimit  : Number(f.creditLimit || 0),
+
+      // ------- Address columns in table -------
+      addr_no:        f.addr?.no           || null,
+      addr_road:      f.addr?.road         || null,
+      addr_soi:       f.addr?.soi          || null,
+      provinceId:     f.addr?.provinceId   || null,
+      provinceName:   f.addr?.provinceName || null,
+      amphureId:      f.addr?.amphureId    || null,
+      amphureName:    f.addr?.amphureName  || null,
+      tambonId:       f.addr?.tambonId     || null,
+      tambonName:     f.addr?.tambonName   || null,
+      postcode:       f.addr?.postcode     || null,
+
+      // ------- Keep extra as JSON payload -------
+      payload: JSON.stringify({
+        addr: f.addr || {},
+        medical: f.medical || {},
+        // ซ้ำข้อมูลหลักไว้เล็กน้อยเพื่อ backward-compat
+        customerType: f.customerType,
+        paymentType:  f.paymentType,
+        creditDays:   Number(f.creditDays || 0),
+        creditLimit:  Number(f.creditLimit || 0),
+        companyName:  f.companyName || '',
+        taxId:        f.taxId || '',
+        branchCode:   f.branchCode || '',
+        contactPerson:f.contactPerson || '',
+        contactPhone: f.contactPhone || ''
+      })
+    };
+    // ลบ key ที่เป็น null เพื่อหลบ NOT NULL constraints
+    Object.keys(base).forEach(k => (base[k] == null) && delete base[k]);
+    return base;
+  };
+
+  return {
+    // --- state ---
+    provinces: [], amphures: [], tambons: [],
+    addr: { provinceId:"", amphureId:"", tambonId:"" },
+
+    customers: [],
+    editingIndex: null,
+    searchQuery:"", showSug:false, searchSuggestions:[],
+    filter:{ keyword:"", provinceId:"" },
+
+    // ตัวเลือกตัวอย่าง (ป้องกัน undefined ถ้า HTML ใช้)
+    diseaseOptions: ['เบาหวาน','ความดัน','หัวใจ','หอบหืด','ไทรอยด์','ไม่มี'],
+    allergyOptions: ['เพนิซิลลิน','ซัลฟา','NSAIDs','ซีฟูด','ละอองเกสร','ไม่มี'],
+
+    form: {
+      id:null, code:"",
+      // individual
+      firstName:"", lastName:"", nationalId:"",
+      gender:"", birthday:"", age:"", phone:"", email:"",
+      // payment/credit
+      customerType:'individual',   // 'individual'|'corporate'
+      paymentType :'cash',         // 'cash'|'credit'
+      creditDays  :0,
+      creditLimit :0,
+      // corporate
+      companyName:"", taxId:"", branchCode:"",
+      contactPerson:"", contactPhone:"",
+      // address
+      addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+      // extra
+      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+    },
+
+    // --- derived flags for UI ---
+    get isCorporate(){ return this.form.customerType === 'corporate'; },
+    get isCredit(){ return this.form.paymentType === 'credit'; },
+
+    // --- lifecycle ---
+    async init(){
+      try {
+        const pv = await api(`/api/geo/provinces`);
+        // GEO single-table → คืน {id, name}
+        this.provinces = (pv?.data || pv || []).map(p => ({
+          id: p.id,
+          name: p.name || p.nameTh || p.nameEn || String(p.id)
+        }));
+      } catch(e) { this.provinces = []; console.error('load provinces', e); }
+
+      if (this.form?.addr?.provinceId) {
+        await this.onProvinceChange();
+        if (this.form?.addr?.amphureId) await this.onAmphureChange();
+      }
+      await this.reload();
+      this._genCode();
+    },
+
+    // --- utils ---
+    _genCode(){
+      // สร้างเฉพาะตอนเป็นเรคคอร์ดใหม่ หรือ code ยังว่าง/-TMP เท่านั้น
+      if (this.form?.id) return;
+      if (this.form?.code && this.form.code !== '-TMP') return;
+
+      const pad2 = n => String(n).padStart(2, '0');
+      const now  = new Date();
+      const y    = now.getFullYear();
+      const m    = pad2(now.getMonth()+1);
+      const d    = pad2(now.getDate());
+      const ymd  = `${y}${m}${d}`;
+
+      const prefix = `CU${ymd}-`;
+      const list   = Array.isArray(this.customers) ? this.customers : [];
+      const todays = list.map(c => c?.code).filter(code => typeof code === 'string' && code.startsWith(prefix));
+
+      let next = 1;
+      if (todays.length) {
+        const lastMax = todays
+          .map(code => parseInt(code.slice(prefix.length), 10))
+          .filter(n => Number.isInteger(n))
+          .sort((a,b) => b - a)[0];
+        next = (lastMax || 0) + 1;
+      }
+      const run = String(next).padStart(4, '0');
+      this.form.code = `${prefix}${run}`;
+    },
+
+    updateAge(){
+      if(!this.form.birthday){ this.form.age=""; return; }
+      try{
+        const b = new Date(this.form.birthday);
+        const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25);
+        this.form.age = String(Math.floor(diff));
+      }catch(e){ this.form.age = ""; }
+    },
+
+    canSave(){
+      if (!this.form.code) return false;
+      if (this.isCorporate) {
+        return !!(this.form.companyName && this.form.taxId);
+      } else {
+        return !!(this.form.firstName && this.form.lastName);
+      }
+    },
+
+    _editNormalize(){
+      const f = this.form;
+      if (!f.customerType) f.customerType = 'individual';
+      if (!f.paymentType)  f.paymentType  = 'cash';
+      if (f.creditDays == null)  f.creditDays  = 0;
+      if (f.creditLimit == null) f.creditLimit = 0;
+      ['companyName','taxId','branchCode','contactPerson','contactPhone']
+        .forEach(k => { if (f[k] == null) f[k] = ''; });
+    },
+
+    // === Helper: เซ็ตชื่อ/รีเซ็ต dependent เมื่อเปลี่ยน id ===
+    setProvince(){
+      const pid = Number(this.form?.addr?.provinceId || 0) || 0;
+      const p = this.provinces.find(x => Number(x.id) === pid);
+      this.form.addr.provinceName = p?.name || '';
+      // reset อำเภอ/ตำบล เมื่อเปลี่ยนจังหวัด
+      this.form.addr.amphureId = ""; this.form.addr.amphureName = "";
+      this.form.addr.tambonId  = ""; this.form.addr.tambonName  = "";
+      this.form.addr.postcode  = "";
+    },
+    setAmphure(){
+      const aid = Number(this.form?.addr?.amphureId || 0) || 0;
+      const a = this.amphures.find(x => Number(x.id) === aid);
+      this.form.addr.amphureName = a?.name || '';
+      // reset ตำบลเมื่อเปลี่ยนอำเภอ
+      this.form.addr.tambonId = ""; this.form.addr.tambonName = "";
+      this.form.addr.postcode = "";
+    },
+    setTambon(){
+      const tid = Number(this.form?.addr?.tambonId || 0) || 0;
+      const t = this.tambons.find(x => Number(x.id) === tid);
+      this.form.addr.tambonName = t?.name || '';
+      if (t?.zipcode) this.form.addr.postcode = t.zipcode;
+    },
+
+    // --- API calls ---
+    async reload(){
+      try{
+        const p = new URLSearchParams();
+        if (this.filter.keyword) p.set('search', this.filter.keyword);
+        p.set('limit', 100); p.set('offset', 0);
+        const res = await api(`/api/sales/customers?${p.toString()}`);
+        const list = res?.data || res || [];
+        this.customers = list.map(fromRow);
+      }catch(err){
+        window.toast?.('โหลดลูกค้าล้มเหลว','error'); console.error(err);
+      }
+    },
+
+    async suggest(q){
+      const s = (q ?? this.searchQuery ?? '').trim();
+      if(!s){ this.searchSuggestions=[]; this.showSug=false; return; }
+      try{
+        const p = new URLSearchParams({ search: s, limit: 12, offset: 0 });
+        const res = await api(`/api/sales/customers?${p.toString()}`);
+        const list = res?.data || res || [];
+        this.searchSuggestions = list.map(fromRow);
+        this.showSug = true;
+      }catch(e){ this.searchSuggestions=[]; this.showSug=false; }
+    },
+
+    // --- actions (GEO) ---
+    onProvinceChange: async function(){
+      const pid = Number(this.form?.addr?.provinceId || 0) || 0;
+      this.amphures = []; this.tambons = [];
+      this.form.addr.amphureId = ""; this.form.addr.tambonId = "";
+      if (!pid) { this.setProvince(); return; }
+      try{
+        const ap = await api(`/api/geo/amphures?province_id=${pid}`);
+        // GEO single-table → คืน {id, name}
+        this.amphures = (ap?.data || ap || []).map(a => ({
+          id:a.id, name:a.name || a.nameTh || a.nameEn || String(a.id)
+        }));
+      }catch(e){ this.amphures = []; console.error('load amphures', e); }
+      this.setProvince();
+    },
+
+    onAmphureChange: async function(){
+      const aid = Number(this.form?.addr?.amphureId || 0) || 0;
+      this.tambons = []; this.form.addr.tambonId = "";
+      if (!aid) { this.setAmphure(); return; }
+      try{
+        const tb = await api(`/api/geo/tambons?amphure_id=${aid}`);
+        // GEO single-table → คืน {id, name, zipcode}
+        this.tambons = (tb?.data || tb || []).map(t => ({
+          id:t.id, name:t.name || t.nameTh || t.nameEn || String(t.id),
+          zipcode: t.zipcode || t.zip_code || ''
+        }));
+      }catch(e){ this.tambons = []; console.error('load tambons', e); }
+      this.setAmphure();
+    },
+
+    applyTambonZip(){ this.setTambon(); },
+
+    // --- actions (CRUD) ---
+    resetForm(){
+      this.editingIndex = null;
+      this.form = {
+        id:null, code:"",
+        firstName:"", lastName:"", nationalId:"",
+        gender:"", birthday:"", age:"", phone:"", email:"",
+        customerType:'individual', paymentType:'cash', creditDays:0, creditLimit:0,
+        companyName:"", taxId:"", branchCode:"", contactPerson:"", contactPhone:"",
+        addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      };
+      this._genCode();
+    },
+
+    async save(){
+      if(!this.canSave()){ window.toast?.('กรอกข้อมูลให้ครบก่อนบันทึก','error'); return; }
+      if (this.isCredit) {
+        const d = Number(this.form.creditDays||0);
+        const lim = Number(this.form.creditLimit||0);
+        if (d <= 0) { window.toast?.('กรุณาระบุเครดิต (วัน) > 0','error'); return; }
+        if (lim <= 0){ window.toast?.('กรุณาระบุวงเงินเครดิต > 0','error'); return; }
+      }
+      if (this.isCorporate) {
+        if (!this.form.companyName?.trim()){ window.toast?.('กรุณากรอกชื่อบริษัท','error'); return; }
+        if (!this.form.taxId?.trim()){ window.toast?.('กรุณากรอกเลขผู้เสียภาษี','error'); return; }
+      }
+
+      try{
+        const payload = toPayload(this.form);
+        let saved;
+        if (this.form.id){
+          saved = await api(`/api/sales/customers/${this.form.id}`, { method:'PUT', body: payload });
+        }else{
+          saved = await api(`/api/sales/customers`, { method:'POST', body: payload });
+        }
+        window.toast?.('บันทึกลูกค้าสำเร็จ','info');
+        await this.reload();
+        const id = (saved?.id) || (saved?.data?.id);
+        if (id){
+          const i = this.customers.findIndex(r => r.id === id);
+          if (i>=0) this.edit(i); else this.resetForm();
+        }else{
+          this.resetForm();
+        }
+      }catch(err){
+        const msg = (err?.message || '').toLowerCase();
+        if (msg.includes('duplicate customer code') || msg.includes('unique')){
+          window.toast?.('รหัสลูกค้าซ้ำ กรุณาเปลี่ยนรหัส','error');
+        }else{
+          window.toast?.('บันทึกล้มเหลว','error');
+        }
+        console.error(err);
+      }
+    },
+
+    edit(i){
+      this.editingIndex = i;
+      this.form = JSON.parse(JSON.stringify(this.customers[i]));
+      this._editNormalize();
+      if(!this.form.code) this._genCode();
+    },
+
+    async remove(i){
+      const row = this.customers[i];
+      if (!row?.id) { if(confirm('ลบรายการนี้?')) { this.customers.splice(i,1); } return; }
+      if (!confirm('คุณต้องการลบลูกค้าคนนี้ใช่หรือไม่?')) return;
+      try{
+        await api(`/api/sales/customers/${row.id}`, { method:'DELETE' });
+        window.toast?.('ลบลูกค้าแล้ว','info');
+        await this.reload();
+        this.resetForm();
+      }catch(e){
+        window.toast?.('ลบไม่สำเร็จ','error'); console.error(e);
+      }
+    },
+
+    filteredCustomers(){
+      const kw = (this.filter.keyword||"").toLowerCase();
+      return (this.customers||[]).filter(c=>{
+        const okProv = !this.filter.provinceId || (String(c.addr?.provinceId||'')===String(this.filter.provinceId));
+        if(!kw) return okProv;
+        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.companyName||''} ${c.nationalId||""}`.toLowerCase();
+        return okProv && hay.includes(kw);
+      });
+    }
+  };
+};
   // ===== Sales » Quotation (READY) =====
   window.quotationApp = function quotationApp(){
     return {
