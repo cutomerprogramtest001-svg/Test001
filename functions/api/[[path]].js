@@ -96,9 +96,6 @@ async function __handleGeo(ctx, path, db){
   return (typeof json === 'function' ? json({ error:'Not Found' }, 404) : __geoJson({ error:'Not Found' }, 404, cors));
 }
 /* ===== /GEO helpers ===== */
-
-
-
 export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
@@ -128,6 +125,60 @@ export const onRequest = async (ctx) => {
     if (r) return r; // จบที่นี่ถ้าเป็น /api/geo/*
   }
 
+  // ===== Common helpers ที่ส่วนอื่นต้องใช้ =====
+  const seg = path.split('/').filter(Boolean);           // ["hr","employees",":id"]
+  const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;
+  const [domain, resource, id] = [seg[0] || "", seg[1] || "", seg[2] || null];
+
+  const q = (name, def = "") => (url.searchParams.get(name) ?? def).trim();
+
+  const readBody = async () => {
+    const ct = (request.headers.get("content-type") || "").toLowerCase();
+    if (ct.includes("application/json")) { try { return await request.json(); } catch { return {}; } }
+    if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
+      const fd = await request.formData(); return Object.fromEntries(fd.entries());
+    }
+    const raw = await request.text(); try { return JSON.parse(raw); } catch { return {}; }
+  };
+
+  const safeIdent = (name) => { if (!/^[A-Za-z0-9_]+$/.test(name)) throw new Error(`Invalid identifier: ${name}`); return name; };
+  const getColumns = async (table) => (await db.prepare(`PRAGMA table_info(${table})`).all()).results || [];
+  const hasColumn = async (table, col) => (await getColumns(table)).some(c => c.name === col);
+  const getPK = async (table) => {
+    const cols = await getColumns(table);
+    const pk = cols.find(c=>c.pk===1)?.name; if (pk) return pk;
+    if (cols.some(c=>c.name.toLowerCase()==="id")) return "id";
+    return "rowid";
+  };
+  const user = request.headers.get("x-user") || "system";
+  const addAuditOnCreate = async (table, obj) => {
+    const o = { ...obj };
+    if (await hasColumn(table,"CreateDate")) o.CreateDate = o.CreateDate ?? {__raw:"datetime('now')"};
+    if (await hasColumn(table,"UpdateDate")) o.UpdateDate = o.UpdateDate ?? {__raw:"datetime('now')"};
+    if (await hasColumn(table,"CreateBy"))   o.CreateBy   = o.CreateBy   ?? user;
+    if (await hasColumn(table,"UpdateBy"))   o.UpdateBy   = o.UpdateBy   ?? user;
+    return o;
+  };
+  const addAuditOnUpdate = async (table, obj) => {
+    const o = { ...obj };
+    if (await hasColumn(table,"UpdateDate")) o.UpdateDate = {__raw:"datetime('now')"};
+    if (await hasColumn(table,"UpdateBy"))   o.UpdateBy   = user;
+    return o;
+  };
+  const buildInsert = (table, dataObj) => {
+    const keys = Object.keys(dataObj); if (!keys.length) throw new Error("Empty object");
+    const cols = keys.map(k=>`"${safeIdent(k)}"`).join(", ");
+    const vals = keys.map(k=> dataObj[k]?.__raw ? dataObj[k].__raw : "?").join(", ");
+    const bind = keys.filter(k=>!dataObj[k]?.__raw).map(k=>dataObj[k]);
+    return { sql: `INSERT INTO ${table} (${cols}) VALUES (${vals}) RETURNING *`, bind };
+  };
+  const buildUpdate = (table, dataObj, idField) => {
+    const keys = Object.keys(dataObj); if (!keys.length) throw new Error("Empty object");
+    const sets = keys.map(k=> dataObj[k]?.__raw ? `"${safeIdent(k)}"=${dataObj[k].__raw}` : `"${safeIdent(k)}"=?`).join(", ");
+    const bind = keys.filter(k=>!dataObj[k]?.__raw).map(k=>dataObj[k]);
+    return { sql: `UPDATE ${table} SET ${sets} WHERE ${idField}=? RETURNING *`, bind };
+  };
+
   // ===== HR: Employees =====
   if (seg[0] === "hr" && seg[1] === "employees") {
     const table="hr_employees", pk=await getPK(table);
@@ -154,7 +205,7 @@ export const onRequest = async (ctx) => {
     return err("method not allowed",405);
   }
 
-  // ===== HR: Attendance (filters ตรงหน้า) =====
+  // ===== HR: Attendance =====
   if (seg[0] === "hr" && seg[1] === "attendance") {
     const table="hr_attendance", pk=await getPK(table);
     if (method==="GET" && !idFromPath) {
@@ -198,187 +249,167 @@ export const onRequest = async (ctx) => {
     return err("method not allowed",405);
   }
 
-// ===== HR: Timeclock =====
-if (domain === 'hr' && resource === 'timeclock') {
-  const table = 'hr_timeclock';
-  const pk = 'id';
-  const idFromPath = id;
+  // ===== HR: Timeclock (บล็อคเดิมของคุณ ใช้ domain/resource/id ที่นิยามไว้แล้ว) =====
+  if (domain === 'hr' && resource === 'timeclock') {
+    const table = 'hr_timeclock';
+    const pk = 'id';
+    const idFromPath_tc = id;
 
-  const json = (data, status = 200) =>
-    new Response(JSON.stringify(data), {
-      status,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-    });
+    const json = (data, status = 200) =>
+      new Response(JSON.stringify(data), {
+        status,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin }
+      });
 
-  const toLocalYMD = (d = new Date(), offsetMin = 7 * 60) => {
-    // ให้ date เป็นเวลาไทย (+07:00)
-    const t = new Date(d.getTime() + offsetMin * 60000);
-    return t.toISOString().slice(0, 10);
-  };
+    const toLocalYMD = (d = new Date(), offsetMin = 7 * 60) => {
+      const t = new Date(d.getTime() + offsetMin * 60000);
+      return t.toISOString().slice(0, 10);
+    };
 
-  // CORS preflight (กันไว้ก่อน)
-  if (method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
+    // POST /api/hr/timeclock  (Clock In)
+    if (method === 'POST') {
+      try {
+        const b = await request.json().catch(() => ({}));
+        const empId = (b.empId || '').trim();
+        if (!empId) return json({ ok: false, error: 'empId required' }, 400);
+
+        const nowISO = new Date().toISOString();
+        const ymd = (b.date && String(b.date).trim()) || toLocalYMD();
+
+        const open = await db
+          .prepare(
+            `SELECT ${pk} AS id FROM ${table}
+             WHERE empId=? AND date=? AND (outAt IS NULL OR outAt='' OR outAt='null')
+             ORDER BY ${pk} DESC LIMIT 1`
+          )
+          .bind(empId, ymd)
+          .first();
+        if (open) return json({ ok: false, reason: 'already_open', id: open.id }, 409);
+
+        await db
+          .prepare(
+            `INSERT INTO ${table}
+               (empId, date, inAt, outAt, hours, note, geo, CreateDate)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(empId, ymd, nowISO, null, 0, b.note || '', b.geo || '', nowISO)
+          .run();
+
+        const last = await db.prepare(`SELECT last_insert_rowid() AS lid`).first();
+        const row = await db
+          .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
+          .bind(last.lid)
+          .first();
+
+        return json({ ok: true, row });
+      } catch (e) {
+        console.error('[timeclock POST]', e);
+        return json({ ok: false, error: String(e) }, 500);
       }
-    });
-  }
-
-  // ---------- POST /api/hr/timeclock  (Clock In) ----------
-  if (method === 'POST') {
-    try {
-      const b = await request.json().catch(() => ({}));
-
-      const empId = (b.empId || '').trim();
-      if (!empId) return json({ ok: false, error: 'empId required' }, 400);
-
-      const nowISO = new Date().toISOString();
-      const ymd = (b.date && String(b.date).trim()) || toLocalYMD();
-
-      // กันแถวค้าง (ยังไม่ออกงาน)
-      const open = await db
-        .prepare(
-          `SELECT ${pk} AS id FROM ${table}
-           WHERE empId=? AND date=? AND (outAt IS NULL OR outAt='' OR outAt='null')
-           ORDER BY ${pk} DESC LIMIT 1`
-        )
-        .bind(empId, ymd)
-        .first();
-      if (open) return json({ ok: false, reason: 'already_open', id: open.id }, 409);
-
-      // INSERT (ไม่ใช้ RETURNING) แล้ว SELECT ตาม last_insert_rowid()
-      await db
-        .prepare(
-          `INSERT INTO ${table}
-             (empId, date, inAt, outAt, hours, note, geo, CreateDate)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .bind(empId, ymd, nowISO, null, 0, b.note || '', b.geo || '', nowISO)
-        .run();
-
-      const last = await db.prepare(`SELECT last_insert_rowid() AS lid`).first();
-      const row = await db
-        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
-        .bind(last.lid)
-        .first();
-
-      return json({ ok: true, row });
-    } catch (e) {
-      console.error('[timeclock POST]', e);
-      return json({ ok: false, error: String(e) }, 500);
     }
-  }
 
-  // ---------- PUT/PATCH /api/hr/timeclock/:id  (Clock Out / Update) ----------
-  if ((method === 'PUT' || method === 'PATCH') && idFromPath) {
-    try {
-      const b = await request.json().catch(() => ({}));
+    // PUT/PATCH /api/hr/timeclock/:id  (Clock Out / Update)
+    if ((method === 'PUT' || method === 'PATCH') && idFromPath_tc) {
+      try {
+        const b = await request.json().catch(() => ({}));
+        const cur = await db
+          .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
+          .bind(idFromPath_tc)
+          .first();
+        if (!cur) return json({ ok: false, error: 'not found' }, 404);
 
-      const cur = await db
-        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
-        .bind(idFromPath)
-        .first();
-      if (!cur) return json({ ok: false, error: 'not found' }, 404);
-
-      // อนุญาตทั้ง outAt จาก body หรือสั่งออกเดี๋ยวนี้
-      let outAtISO = b.outAt ? new Date(b.outAt).toISOString() : null;
-      if (!outAtISO && (b.clockOutNow === true || b.clockOutNow === 'true' || b.clockOutNow === '1')) {
-        outAtISO = new Date().toISOString();
-      }
-
-      // คำนวณชั่วโมง (ถ้ามี inAt และ outAt)
-      let hoursVal = cur.hours || 0;
-      const inAtISO = cur.inAt || b.inAt || null;
-      if (inAtISO && outAtISO) {
-        const a = new Date(inAtISO).getTime();
-        const c = new Date(outAtISO).getTime();
-        if (Number.isFinite(a) && Number.isFinite(c) && c >= a) {
-          hoursVal = +(((c - a) / (1000 * 60 * 60)).toFixed(2));
+        let outAtISO = b.outAt ? new Date(b.outAt).toISOString() : null;
+        if (!outAtISO && (b.clockOutNow === true || b.clockOutNow === 'true' || b.clockOutNow === '1')) {
+          outAtISO = new Date().toISOString();
         }
+
+        let hoursVal = cur.hours || 0;
+        const inAtISO = cur.inAt || b.inAt || null;
+        if (inAtISO && outAtISO) {
+          const a = new Date(inAtISO).getTime();
+          const c = new Date(outAtISO).getTime();
+          if (Number.isFinite(a) && Number.isFinite(c) && c >= a) {
+            hoursVal = +(((c - a) / (1000 * 60 * 60)).toFixed(2));
+          }
+        }
+
+        const dateStr =
+          (cur.date && String(cur.date).trim()) ||
+          (b.date && String(b.date).trim()) ||
+          toLocalYMD();
+
+        await db
+          .prepare(
+            `UPDATE ${table}
+                SET empId = COALESCE(?, empId),
+                    date  = COALESCE(?, date),
+                    inAt  = COALESCE(?, inAt),
+                    outAt = COALESCE(?, outAt),
+                    hours = COALESCE(?, hours),
+                    note  = COALESCE(?, note),
+                    geo   = COALESCE(?, geo)
+              WHERE ${pk}=?`
+          )
+          .bind(
+            b.empId ?? null,
+            dateStr ?? null,
+            b.inAt ?? null,
+            outAtISO ?? null,
+            hoursVal ?? null,
+            b.note ?? null,
+            b.geo ?? null,
+            idFromPath_tc
+          )
+          .run();
+
+        const row = await db
+          .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
+          .bind(idFromPath_tc)
+          .first();
+
+        return json({ ok: true, row });
+      } catch (e) {
+        console.error('[timeclock PUT]', e);
+        return json({ ok: false, error: String(e) }, 500);
       }
-
-      const dateStr =
-        (cur.date && String(cur.date).trim()) ||
-        (b.date && String(b.date).trim()) ||
-        toLocalYMD();
-
-      await db
-        .prepare(
-          `UPDATE ${table}
-              SET empId = COALESCE(?, empId),
-                  date  = COALESCE(?, date),
-                  inAt  = COALESCE(?, inAt),
-                  outAt = COALESCE(?, outAt),
-                  hours = COALESCE(?, hours),
-                  note  = COALESCE(?, note),
-                  geo   = COALESCE(?, geo)
-            WHERE ${pk}=?`
-        )
-        .bind(
-          b.empId ?? null,
-          dateStr ?? null,
-          b.inAt ?? null,
-          outAtISO ?? null,
-          hoursVal ?? null,
-          b.note ?? null,
-          b.geo ?? null,
-          idFromPath
-        )
-        .run();
-
-      const row = await db
-        .prepare(`SELECT * FROM ${table} WHERE ${pk}=?`)
-        .bind(idFromPath)
-        .first();
-
-      return json({ ok: true, row });
-    } catch (e) {
-      console.error('[timeclock PUT]', e);
-      return json({ ok: false, error: String(e) }, 500);
     }
-  }
 
-  // ---------- GET /api/hr/timeclock?empId=..&from=YYYY-MM-DD&to=YYYY-MM-DD ----------
-  if (method === 'GET') {
-    try {
-      const q = new URLSearchParams(url.search);
-      const empId = (q.get('empId') || '').trim();
-      const from = (q.get('from') || '').trim();
-      const to = (q.get('to') || '').trim();
+    // GET /api/hr/timeclock?empId=..&from=YYYY-MM-DD&to=YYYY-MM-DD
+    if (method === 'GET') {
+      try {
+        const sp = new URLSearchParams(url.search);
+        const empId = (sp.get('empId') || '').trim();
+        const from = (sp.get('from') || '').trim();
+        const to = (sp.get('to') || '').trim();
 
-      let sql = `SELECT * FROM ${table} WHERE 1=1`;
-      const p = [];
-      if (empId) { sql += ` AND empId=?`; p.push(empId); }
-      if (from)  { sql += ` AND date>=?`; p.push(from); }
-      if (to)    { sql += ` AND date<=?`; p.push(to); }
-      sql += ` ORDER BY ${pk} DESC LIMIT 500`;
+        let sql = `SELECT * FROM ${table} WHERE 1=1`;
+        const p = [];
+        if (empId) { sql += ` AND empId=?`; p.push(empId); }
+        if (from)  { sql += ` AND date>=?`; p.push(from); }
+        if (to)    { sql += ` AND date<=?`; p.push(to); }
+        sql += ` ORDER BY ${pk} DESC LIMIT 500`;
 
-      const { results } = await db.prepare(sql).bind(...p).all();
-      return json({ ok: true, data: results });
-    } catch (e) {
-      console.error('[timeclock GET]', e);
-      return json({ ok: false, error: String(e) }, 500);
+        const { results } = await db.prepare(sql).bind(...p).all();
+        return json({ ok: true, data: results });
+      } catch (e) {
+        console.error('[timeclock GET]', e);
+        return json({ ok: false, error: String(e) }, 500);
+      }
     }
-  }
 
-  // ---------- DELETE /api/hr/timeclock/:id ----------
-  if (method === 'DELETE' && idFromPath) {
-    try {
-      await db.prepare(`DELETE FROM ${table} WHERE ${pk}=?`).bind(idFromPath).run();
-      return json({ ok: true });
-    } catch (e) {
-      console.error('[timeclock DELETE]', e);
-      return json({ ok: false, error: String(e) }, 500);
+    // DELETE /api/hr/timeclock/:id
+    if (method === 'DELETE' && idFromPath_tc) {
+      try {
+        await db.prepare(`DELETE FROM ${table} WHERE ${pk}=?`).bind(idFromPath_tc).run();
+        return json({ ok: true });
+      } catch (e) {
+        console.error('[timeclock DELETE]', e);
+        return json({ ok: false, error: String(e) }, 500);
+      }
     }
+
+    return json({ ok: false, error: 'Method not allowed' }, 405);
   }
-
-  return json({ ok: false, error: 'Method not allowed' }, 405);
-}
-
 
   // ===== Sales: Customers =====
   if (seg[0] === "sales" && seg[1] === "customers") {
@@ -395,191 +426,157 @@ if (domain === 'hr' && resource === 'timeclock') {
     return err("method not allowed",405);
   }
 
-// ===== Sales: Quotations (หน้าโพสต์ customer/items เป็น JSON string) =====
-if (seg[0] === "sales" && seg[1] === "quotations") {
-  const T_HEAD  = "sales_quotations";
-  const T_ITEMS = "sales_quotationitems";
-  const headPK  = await getPK(T_HEAD);
+  // ===== Sales: Quotations =====
+  if (seg[0] === "sales" && seg[1] === "quotations") {
+    const T_HEAD  = "sales_quotations";
+    const T_ITEMS = "sales_quotationitems";
+    const headPK  = await getPK(T_HEAD);
 
-  const parseCustomer = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
-  const parseItems    = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (Array.isArray(s) ? s : []); } catch { return []; } };
+    const parseCustomer = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
+    const parseItems    = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (Array.isArray(s) ? s : []); } catch { return []; } };
 
-  // ---------- Helpers: safe quotation number ----------
-  async function genQNoSafe(dateStr){
-    const d = dateStr ? new Date(dateStr) : new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth()+1).padStart(2,'0');
-    const day = String(d.getDate()).padStart(2,'0');
-    const prefix = `Q${y}${m}${day}-`;
-    const row = await db.prepare(`
-      SELECT MAX(CAST(SUBSTR(qNo, LENGTH(?) + 1) AS INTEGER)) AS maxrun
-      FROM ${T_HEAD}
-      WHERE qNo LIKE ? || '%'
-    `).bind(prefix, prefix).first();
-    const next = Number(row?.maxrun || 0) + 1;
-    return `${prefix}${String(next).padStart(3,'0')}`;
-  }
-  async function qNoExists(qno){
-    if(!qno) return false;
-    const r = await db.prepare(`SELECT 1 FROM ${T_HEAD} WHERE qNo=? LIMIT 1`).bind(qno).first();
-    return !!r;
-  }
+    async function genQNoSafe(dateStr){
+      const d = dateStr ? new Date(dateStr) : new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      const prefix = `Q${y}${m}${day}-`;
+      const row = await db.prepare(`
+        SELECT MAX(CAST(SUBSTR(qNo, LENGTH(?) + 1) AS INTEGER)) AS maxrun
+        FROM ${T_HEAD}
+        WHERE qNo LIKE ? || '%'
+      `).bind(prefix, prefix).first();
+      const next = Number(row?.maxrun || 0) + 1;
+      return `${prefix}${String(next).padStart(3,'0')}`;
+    }
+    async function qNoExists(qno){
+      if(!qno) return false;
+      const r = await db.prepare(`SELECT 1 FROM ${T_HEAD} WHERE qNo=? LIMIT 1`).bind(qno).first();
+      return !!r;
+    }
 
-  // LIST: GET /api/sales/quotations
-  if (method === "GET" && !idFromPath) {
-    const rs = await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
-    return send(rs.results || []);
-  }
+    if (method === "GET" && !idFromPath) {
+      const rs = await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
+      return send(rs.results || []);
+    }
 
-  // GET by id: /api/sales/quotations/:id  -> head + items (คำนวณ discount กลับ)
-  if (method === "GET" && idFromPath) {
-    const head = await db.prepare(`SELECT * FROM ${T_HEAD} WHERE ${headPK}=?`).bind(idFromPath).first();
-    if (!head) return err("not found", 404);
+    if (method === "GET" && idFromPath) {
+      const head = await db.prepare(`SELECT * FROM ${T_HEAD} WHERE ${headPK}=?`).bind(idFromPath).first();
+      if (!head) return err("not found", 404);
 
-    const itemsRow = await db.prepare(`
-      SELECT qNo, itemCode, itemName, qty, unitPrice, lineTotal
-      FROM ${T_ITEMS}
-      WHERE qNo = ?
-      ORDER BY id ASC
-    `).bind(head.qNo).all();
+      const itemsRow = await db.prepare(`
+        SELECT qNo, itemCode, itemName, qty, unitPrice, lineTotal
+        FROM ${T_ITEMS}
+        WHERE qNo = ?
+        ORDER BY id ASC
+      `).bind(head.qNo).all();
 
-    const items = (itemsRow.results || []).map(r => {
-      const qty   = Number(r.qty || 0);
-      const price = Number(r.unitPrice || 0);
-      const line  = Number(r.lineTotal || 0);
-      const discount = Math.max(0, (qty * price) - line);
-      return {
-        service : r.itemCode || "",
-        tooth   : r.itemName || "",
-        qty, price,
-        discount: +discount.toFixed(2)
+      const items = (itemsRow.results || []).map(r => {
+        const qty   = Number(r.qty || 0);
+        const price = Number(r.unitPrice || 0);
+        const line  = Number(r.lineTotal || 0);
+        const discount = Math.max(0, (qty * price) - line);
+        return { service: r.itemCode || "", tooth: r.itemName || "", qty, price, discount: +discount.toFixed(2) };
+      });
+
+      const customer = {
+        code       : head.customerCode || "",
+        firstName  : head.customerFirstName || "",
+        lastName   : head.customerLastName || "",
+        nationalId : head.customerNationalId || "",
+        age        : Number(head.customerAge || 0),
       };
-    });
 
-    const customer = {
-      code       : head.customerCode || "",
-      firstName  : head.customerFirstName || "",
-      lastName   : head.customerLastName || "",
-      nationalId : head.customerNationalId || "",
-      age        : Number(head.customerAge || 0),
-    };
-
-    return send({ ...head, customer, items });
-  }
-
-  // CREATE: POST /api/sales/quotations
-  if (method === "POST") {
-    const body  = await readBody();
-    const cust  = parseCustomer(body.customer);
-    const items = parseItems(body.items);
-
-    // สร้าง qNo แบบปลอดชน ถ้าไม่ส่งมา หรือส่งมาซ้ำ
-    let qNo = (body.qNo || "").trim();
-    if (!qNo || await qNoExists(qNo)) {
-      qNo = await genQNoSafe(body.qDate || null);
+      return send({ ...head, customer, items });
     }
 
-    const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
-    const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
-    const grandTotal  = +(totalBefore - discount).toFixed(2);
+    if (method === "POST") {
+      const body  = await readBody();
+      const cust  = parseCustomer(body.customer);
+      const items = parseItems(body.items);
 
-    const headObj = await addAuditOnCreate(T_HEAD, {
-      qNo,
-      qDate                  : body.qDate || null,
-      status                 : body.confirmed ? "Confirmed" : "Draft",
-      customerCode           : cust.code || "",
-      customerFirstName      : cust.firstName || "",
-      customerLastName       : cust.lastName || "",
-      customerNationalId     : cust.nationalId || "",
-      customerAge            : Number(cust.age || 0),
-      totalBeforeDiscount    : totalBefore,
-      discount,
-      grandTotal,
-      note                   : body.note || ""
-    });
-    const { sql: sqlH, bind: bindH } = buildInsert(T_HEAD, headObj);
-    const head = await db.prepare(sqlH).bind(...bindH).first();
+      let qNo = (body.qNo || "").trim();
+      if (!qNo || await qNoExists(qNo)) qNo = await genQNoSafe(body.qDate || null);
 
-    if (items.length) {
-      // ใช้เฉพาะคอลัมน์ที่มีจริงในสคีมา
-      const ins = db.prepare(`
-        INSERT INTO ${T_ITEMS}
-          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
-        VALUES
-          (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
-      `);
-      for (const it of items) {
-        const qty  = Number(it.qty || 0);
-        const price= Number(it.price || 0);
-        const disc = Number(it.discount || 0);
-        const line = Math.max(0, qty * price - disc);
-        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+      const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+      const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+      const grandTotal  = +(totalBefore - discount).toFixed(2);
+
+      const headObj = await addAuditOnCreate(T_HEAD, {
+        qNo, qDate: body.qDate || null, status: body.confirmed ? "Confirmed" : "Draft",
+        customerCode: cust.code || "", customerFirstName: cust.firstName || "", customerLastName: cust.lastName || "",
+        customerNationalId: cust.nationalId || "", customerAge: Number(cust.age || 0),
+        totalBeforeDiscount: totalBefore, discount, grandTotal, note: body.note || ""
+      });
+      const { sql: sqlH, bind: bindH } = buildInsert(T_HEAD, headObj);
+      const head = await db.prepare(sqlH).bind(...bindH).first();
+
+      if (items.length) {
+        const ins = db.prepare(`
+          INSERT INTO ${T_ITEMS}
+            (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
+          VALUES
+            (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
+        `);
+        for (const it of items) {
+          const qty  = Number(it.qty || 0);
+          const price= Number(it.price || 0);
+          const disc = Number(it.discount || 0);
+          const line = Math.max(0, qty * price - disc);
+          await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+        }
       }
+      return send(head);
     }
-    return send(head);
-  }
 
-  // UPDATE: PUT/PATCH /api/sales/quotations/:id
-  if ((method === "PUT" || method === "PATCH") && idFromPath) {
-    const body  = await readBody();
-    const cust  = parseCustomer(body.customer);
-    const items = parseItems(body.items);
+    if ((method === "PUT" || method === "PATCH") && idFromPath) {
+      const body  = await readBody();
+      const cust  = parseCustomer(body.customer);
+      const items = parseItems(body.items);
 
-    const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
-    const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
-    const grandTotal  = +(totalBefore - discount).toFixed(2);
+      const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+      const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+      const grandTotal  = +(totalBefore - discount).toFixed(2);
 
-    const updObj = await addAuditOnUpdate(T_HEAD, {
-      qNo                    : body.qNo || null,
-      qDate                  : body.qDate || null,
-      status                 : body.confirmed ? "Confirmed" : "Draft",
-      customerCode           : cust.code || "",
-      customerFirstName      : cust.firstName || "",
-      customerLastName       : cust.lastName || "",
-      customerNationalId     : cust.nationalId || "",
-      customerAge            : Number(cust.age || 0),
-      totalBeforeDiscount    : totalBefore,
-      discount,
-      grandTotal,
-      note                   : body.note || ""
-    });
-    const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
-    const head = await db.prepare(sql).bind(...bind, idFromPath).first();
-    if (!head) return err("not found", 404);
+      const updObj = await addAuditOnUpdate(T_HEAD, {
+        qNo: body.qNo || null, qDate: body.qDate || null, status: body.confirmed ? "Confirmed" : "Draft",
+        customerCode: cust.code || "", customerFirstName: cust.firstName || "", customerLastName: cust.lastName || "",
+        customerNationalId: cust.nationalId || "", customerAge: Number(cust.age || 0),
+        totalBeforeDiscount: totalBefore, discount, grandTotal, note: body.note || ""
+      });
+      const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
+      const head = await db.prepare(sql).bind(...bind, idFromPath).first();
+      if (!head) return err("not found", 404);
 
-    // เคลียร์ items เดิมของ qNo (ใช้ qNo หลังอัปเดต)
-    await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-
-    if (items.length) {
-      const ins = db.prepare(`
-        INSERT INTO ${T_ITEMS}
-          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
-        VALUES
-          (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
-      `);
-      for (const it of items) {
-        const qty  = Number(it.qty || 0);
-        const price= Number(it.price || 0);
-        const disc = Number(it.discount || 0);
-        const line = Math.max(0, qty * price - disc);
-        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+      await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+      if (items.length) {
+        const ins = db.prepare(`
+          INSERT INTO ${T_ITEMS}
+            (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
+          VALUES
+            (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
+        `);
+        for (const it of items) {
+          const qty  = Number(it.qty || 0);
+          const price= Number(it.price || 0);
+          const disc = Number(it.discount || 0);
+          const line = Math.max(0, qty * price - disc);
+          await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+        }
       }
+      return send(head);
     }
-    return send(head);
+
+    if (method === "DELETE" && idFromPath) {
+      const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
+      if (head) await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+      return head ? send(head) : err("not found", 404);
+    }
+
+    return err("method not allowed", 405);
   }
 
-  // DELETE: /api/sales/quotations/:id  (ลบหัว + ไอเท็ม)
-  if (method === "DELETE" && idFromPath) {
-    const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
-    if (head) await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-    return head ? send(head) : err("not found", 404);
-  }
-
-  return err("method not allowed", 405);
-}
-
-
-  // ===== Sales: Orders (หน้าใช้ตารางนี้ + payload) =====
+  // ===== Sales: Orders =====
   if (seg[0]==="sales" && seg[1]==="orders") {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS sales_orders (
