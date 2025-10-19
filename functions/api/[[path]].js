@@ -1,4 +1,4 @@
-/* ===== GEO (Single-table) – self-contained, ไม่แตะ route อื่น ===== */
+/* ===== GEO (Single-table) – helpers only, ไม่แตะ router อื่น ===== */
 const __geoJson = (data, status=200, headers={}) =>
   new Response(JSON.stringify(data), {
     status,
@@ -34,9 +34,9 @@ async function __geoMaybeSeed(db){
   ]);
 }
 
-// handler นี้ “รับผิดชอบเฉพาะ” /api/geo/* เท่านั้น (คืน Response หรือ null)
+// handler เฉพาะ /api/geo/*
 async function __handleGeo(ctx, path, db){
-  if (!path.startsWith('geo/')) return null; // ปล่อยให้ระบบเดิมจัดการ
+  if (!path.startsWith('geo/')) return null; // ปล่อยให้ router เดิมทำงาน
   const cors = ctx.baseHeaders || { "content-type": "application/json; charset=utf-8" };
 
   await __geoEnsureSingle(db);
@@ -67,7 +67,7 @@ async function __handleGeo(ctx, path, db){
     return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
   }
 
-  // /api/geo/tambons?amphure_id=1001
+  // /api/geo/tambons?amphure_id=...
   if (path.startsWith('geo/tambons')) {
     const url = new URL(ctx.request.url);
     const aid = url.searchParams.get('amphure_id');
@@ -84,7 +84,7 @@ async function __handleGeo(ctx, path, db){
     return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
   }
 
-  // (optional) ตรวจยอดรวม
+  // สถานะรวม
   if (path === 'geo/status') {
     const p = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='province'`).first();
     const a = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='amphure'`).first();
@@ -95,7 +95,8 @@ async function __handleGeo(ctx, path, db){
 
   return (typeof json === 'function' ? json({ error:'Not Found' }, 404) : __geoJson({ error:'Not Found' }, 404, cors));
 }
-/* ===== /GEO ===== */
+/* ===== /GEO helpers ===== */
+
 
 
 export const onRequest = async (ctx) => {
