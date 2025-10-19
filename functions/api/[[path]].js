@@ -1,7 +1,9 @@
-// functions/api/[[path]].js
 /* ===== GEO (Single-table) – self-contained, ไม่แตะ route อื่น ===== */
 const __geoJson = (data, status=200, headers={}) =>
-  new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", ...headers } });
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...headers }
+  });
 
 async function __geoEnsureSingle(db) {
   await db.exec(`
@@ -18,7 +20,7 @@ async function __geoEnsureSingle(db) {
   `);
 }
 
-// seed เล็กน้อยเพื่อให้ dropdown ทำงานทันที (ปลอดภัย: OR IGNORE)
+// seed เล็กน้อยเพื่อให้ dropdown ใช้งานได้ทันที (ปลอดภัย: OR IGNORE)
 async function __geoMaybeSeed(db){
   const c = await db.prepare(`SELECT COUNT(*) n FROM geo_admin`).first();
   if (c?.n > 0) return;
@@ -32,41 +34,54 @@ async function __geoMaybeSeed(db){
   ]);
 }
 
-// handler นี้ “รับผิดชอบเฉพาะ” /api/geo/* เท่านั้น
+// handler นี้ “รับผิดชอบเฉพาะ” /api/geo/* เท่านั้น (คืน Response หรือ null)
 async function __handleGeo(ctx, path, db){
-  if (!path.startsWith('geo/')) return null; // ปล่อยให้ระบบเดิมทำงาน
+  if (!path.startsWith('geo/')) return null; // ปล่อยให้ระบบเดิมจัดการ
+  const cors = ctx.baseHeaders || { "content-type": "application/json; charset=utf-8" };
 
   await __geoEnsureSingle(db);
   await __geoMaybeSeed(db);
 
   // /api/geo/provinces
   if (path === 'geo/provinces') {
-    const rs = await db.prepare(`SELECT id, name FROM geo_admin WHERE level='province' ORDER BY name`).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || []));
+    const rs = await db.prepare(
+      `SELECT id, name FROM geo_admin WHERE level='province' ORDER BY name`
+    ).all();
+    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
   }
 
   // /api/geo/amphures?province_id=10
   if (path.startsWith('geo/amphures')) {
     const url = new URL(ctx.request.url);
     const pid = url.searchParams.get('province_id');
-    if (!pid) return (typeof json === 'function' ? json({ error:'province_id required' }, 400) : __geoJson({ error:'province_id required' }, 400));
+    if (!pid)
+      return (typeof json === 'function'
+        ? json({ error:'province_id required' }, 400)
+        : __geoJson({ error:'province_id required' }, 400, cors));
     const rs = await db.prepare(
-      `SELECT id, name, parent_id AS province_id FROM geo_admin
-       WHERE level='amphure' AND parent_id=? ORDER BY name`
+      `SELECT id, name, parent_id AS province_id
+         FROM geo_admin
+        WHERE level='amphure' AND parent_id=?
+        ORDER BY name`
     ).bind(pid).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || []));
+    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
   }
 
   // /api/geo/tambons?amphure_id=1001
   if (path.startsWith('geo/tambons')) {
     const url = new URL(ctx.request.url);
     const aid = url.searchParams.get('amphure_id');
-    if (!aid) return (typeof json === 'function' ? json({ error:'amphure_id required' }, 400) : __geoJson({ error:'amphure_id required' }, 400));
+    if (!aid)
+      return (typeof json === 'function'
+        ? json({ error:'amphure_id required' }, 400)
+        : __geoJson({ error:'amphure_id required' }, 400, cors));
     const rs = await db.prepare(
-      `SELECT id, name, zipcode, parent_id AS amphure_id FROM geo_admin
-       WHERE level='tambon' AND parent_id=? ORDER BY name`
+      `SELECT id, name, zipcode, parent_id AS amphure_id
+         FROM geo_admin
+        WHERE level='tambon' AND parent_id=?
+        ORDER BY name`
     ).bind(aid).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || []));
+    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
   }
 
   // (optional) ตรวจยอดรวม
@@ -75,24 +90,22 @@ async function __handleGeo(ctx, path, db){
     const a = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='amphure'`).first();
     const t = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='tambon'`).first();
     const payload = { provinces:p?.n||0, amphures:a?.n||0, tambons:t?.n||0 };
-    return (typeof json === 'function' ? json(payload) : __geoJson(payload));
+    return (typeof json === 'function' ? json(payload) : __geoJson(payload, 200, cors));
   }
 
-  return (typeof json === 'function' ? json({ error:'Not Found' }, 404) : __geoJson({ error:'Not Found' }, 404));
+  return (typeof json === 'function' ? json({ error:'Not Found' }, 404) : __geoJson({ error:'Not Found' }, 404, cors));
 }
+/* ===== /GEO ===== */
+
 
 export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const db = env.DB; // D1 binding ชื่อ DB
+  const db = env.DB;                      // D1 binding
   const path = url.pathname.replace(/^\/api\/?/, '').trim();
-  const [domain, resource, id] = path.split('/');
-  const user = request.headers.get("x-user") || "system";
-  const r = await __handleGeo({ request }, path, db);
-  if (r) return r; // ถ้าไม่ใช่ /api/geo/* จะได้ null แล้วไปต่อที่ระบบเดิม
 
-  // ----- helpers -----
+  // ===== CORS / helpers =====
   const origin = request.headers.get("Origin") || "*";
   const baseHeaders = {
     "content-type": "application/json; charset=utf-8",
@@ -104,104 +117,14 @@ export const onRequest = async (ctx) => {
   const send = (data, status=200) => new Response(JSON.stringify(data), { status, headers: baseHeaders });
   const err  = (msg, status=400)   => send({ error: msg }, status);
 
+  // ตอบ preflight ก่อนเสมอ
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
   if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
-  const seg = url.pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean); // ["hr","employees","<id>"]
-  const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;
-
-  const q = (name, def = "") => (url.searchParams.get(name) ?? def).trim();
-
-  const readBody = async () => {
-    const ct = (request.headers.get("content-type") || "").toLowerCase();
-    if (ct.includes("application/json")) { try { return await request.json(); } catch { return {}; } }
-    if (ct.includes("application/x-www-form-urlencoded") || ct.includes("multipart/form-data")) {
-      const fd = await request.formData(); return Object.fromEntries(fd.entries());
-    }
-    const raw = await request.text(); try { return JSON.parse(raw); } catch { return {}; }
-  };
-
-  const safeIdent = (name) => { if (!/^[A-Za-z0-9_]+$/.test(name)) throw new Error(`Invalid identifier: ${name}`); return name; };
-  const getColumns = async (table) => (await db.prepare(`PRAGMA table_info(${table})`).all()).results || [];
-  const hasColumn = async (table, col) => (await getColumns(table)).some(c => c.name === col);
-  const getPK = async (table) => {
-    const cols = await getColumns(table);
-    const pk = cols.find(c=>c.pk===1)?.name; if (pk) return pk;
-    if (cols.some(c=>c.name.toLowerCase()==="id")) return "id";
-    return "rowid";
-  };
-  const addAuditOnCreate = async (table, obj) => {
-    const o = { ...obj };
-    if (await hasColumn(table,"CreateDate")) o.CreateDate = o.CreateDate ?? {__raw:"datetime('now')"};
-    if (await hasColumn(table,"UpdateDate")) o.UpdateDate = o.UpdateDate ?? {__raw:"datetime('now')"};
-    if (await hasColumn(table,"CreateBy"))   o.CreateBy   = o.CreateBy   ?? user;
-    if (await hasColumn(table,"UpdateBy"))   o.UpdateBy   = o.UpdateBy   ?? user;
-    return o;
-  };
-  const addAuditOnUpdate = async (table, obj) => {
-    const o = { ...obj };
-    if (await hasColumn(table,"UpdateDate")) o.UpdateDate = {__raw:"datetime('now')"};
-    if (await hasColumn(table,"UpdateBy"))   o.UpdateBy   = user;
-    return o;
-  };
-  const buildInsert = (table, dataObj) => {
-    const keys = Object.keys(dataObj); if (!keys.length) throw new Error("Empty object");
-    const cols = keys.map(k=>`"${safeIdent(k)}"`).join(", ");
-    const vals = keys.map(k=> dataObj[k]?.__raw ? dataObj[k].__raw : "?").join(", ");
-    const bind = keys.filter(k=>!dataObj[k]?.__raw).map(k=>dataObj[k]);
-    return { sql: `INSERT INTO ${table} (${cols}) VALUES (${vals}) RETURNING *`, bind };
-  };
-  const buildUpdate = (table, dataObj, idField) => {
-    const keys = Object.keys(dataObj); if (!keys.length) throw new Error("Empty object");
-    const sets = keys.map(k=> dataObj[k]?.__raw ? `"${safeIdent(k)}"=${dataObj[k].__raw}` : `"${safeIdent(k)}"=?`).join(", ");
-    const bind = keys.filter(k=>!dataObj[k]?.__raw).map(k=>dataObj[k]);
-    return { sql: `UPDATE ${table} SET ${sets} WHERE ${idField}=? RETURNING *`, bind };
-  };
-
-  // ----- health -----
-  if (seg.length === 0) return send({ service:"bizapp-api", time: new Date().toISOString() });
-
-  // ===== GEO (หน้าใช้ province_id & amphure_id) =====
-  if (seg[0] === "geo") {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS geo_provinces (id INTEGER PRIMARY KEY, name_th TEXT, name_en TEXT);
-      CREATE TABLE IF NOT EXISTS geo_amphures (id INTEGER PRIMARY KEY, province_id INTEGER, name_th TEXT, name_en TEXT);
-      CREATE TABLE IF NOT EXISTS geo_tambons  (id INTEGER PRIMARY KEY, amphure_id  INTEGER, zip_code TEXT, name_th TEXT, name_en TEXT);
-    `);
-    if (seg[1] === "provinces" && method === "GET") {
-      const rs = await db.prepare(`SELECT id,name_th,name_en FROM geo_provinces ORDER BY name_th`).all();
-      return send(rs.results || []);
-    }
-    if (seg[1] === "amphures" && method === "GET") {
-      const pid = q("province_id");
-      const st = pid
-        ? db.prepare(`SELECT id,province_id,name_th,name_en FROM geo_amphures WHERE province_id=? ORDER BY name_th`).bind(+pid)
-        : db.prepare(`SELECT id,province_id,name_th,name_en FROM geo_amphures ORDER BY name_th`);
-      const rs = await st.all(); return send(rs.results || []);
-    }
-    if (seg[1] === "tambons" && method === "GET") {
-      const aid = q("amphure_id");
-      const st = aid
-        ? db.prepare(`SELECT id,amphure_id,zip_code,name_th,name_en FROM geo_tambons WHERE amphure_id=? ORDER BY name_th`).bind(+aid)
-        : db.prepare(`SELECT id,amphure_id,zip_code,name_th,name_en FROM geo_tambons ORDER BY name_th`);
-      const rs = await st.all(); return send(rs.results || []);
-    }
-    if (seg[1] === "seed" && (method === "POST" || method === "GET")) {
-      const c = await db.prepare(`SELECT COUNT(*) c FROM geo_provinces`).first();
-      if (c?.c > 0) return send({ seeded: false, reason: "already" });
-      const base="https://raw.githubusercontent.com/kongvut/thai-province-data/master";
-      const [p,a,t] = await Promise.all([fetch(`${base}/api_province.json`), fetch(`${base}/api_amphure.json`), fetch(`${base}/api_tambon.json`)]);
-      if (!p.ok || !a.ok || !t.ok) return err("seed fetch failed", 500);
-      const [P,A,T] = [await p.json(), await a.json(), await t.json()];
-      const insP = db.prepare(`INSERT INTO geo_provinces(id,name_th,name_en) VALUES (?,?,?)`);
-      for (const r of P) await insP.bind(r.id,r.name_th,r.name_en).run();
-      const insA = db.prepare(`INSERT INTO geo_amphures(id,province_id,name_th,name_en) VALUES (?,?,?,?)`);
-      for (const r of A) await insA.bind(r.id,r.province_id,r.name_th,r.name_en).run();
-      const insT = db.prepare(`INSERT INTO geo_tambons(id,amphure_id,zip_code,name_th,name_en) VALUES (?,?,?,?,?)`);
-      for (const r of T) await insT.bind(r.id,r.amphure_id,String(r.zip_code||""),r.name_th,r.name_en).run();
-      return send({ seeded:true, provinces:P.length, amphures:A.length, tambons:T.length });
-    }
-    return err("geo not found", 404);
+  // ===== GEO first (ใช้ตารางเดียว) =====
+  {
+    const r = await __handleGeo({ request, baseHeaders }, path, db);
+    if (r) return r; // จบที่นี่ถ้าเป็น /api/geo/*
   }
 
   // ===== HR: Employees =====
