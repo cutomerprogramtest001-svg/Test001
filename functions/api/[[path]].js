@@ -396,13 +396,34 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
   const parseCustomer = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (s || {}); } catch { return {}; } };
   const parseItems    = (s) => { try { return s && typeof s === "string" ? JSON.parse(s) : (Array.isArray(s) ? s : []); } catch { return []; } };
 
+  // ---------- Helpers: safe quotation number ----------
+  async function genQNoSafe(dateStr){
+    const d = dateStr ? new Date(dateStr) : new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth()+1).padStart(2,'0');
+    const day = String(d.getDate()).padStart(2,'0');
+    const prefix = `Q${y}${m}${day}-`;
+    const row = await db.prepare(`
+      SELECT MAX(CAST(SUBSTR(qNo, LENGTH(?) + 1) AS INTEGER)) AS maxrun
+      FROM ${T_HEAD}
+      WHERE qNo LIKE ? || '%'
+    `).bind(prefix, prefix).first();
+    const next = Number(row?.maxrun || 0) + 1;
+    return `${prefix}${String(next).padStart(3,'0')}`;
+  }
+  async function qNoExists(qno){
+    if(!qno) return false;
+    const r = await db.prepare(`SELECT 1 FROM ${T_HEAD} WHERE qNo=? LIMIT 1`).bind(qno).first();
+    return !!r;
+  }
+
   // LIST: GET /api/sales/quotations
   if (method === "GET" && !idFromPath) {
     const rs = await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
     return send(rs.results || []);
   }
 
-  // GET by id: /api/sales/quotations/:id  -> head + items (คำนวน discount กลับ)
+  // GET by id: /api/sales/quotations/:id  -> head + items (คำนวณ discount กลับ)
   if (method === "GET" && idFromPath) {
     const head = await db.prepare(`SELECT * FROM ${T_HEAD} WHERE ${headPK}=?`).bind(idFromPath).first();
     if (!head) return err("not found", 404);
@@ -444,12 +465,18 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
     const cust  = parseCustomer(body.customer);
     const items = parseItems(body.items);
 
+    // สร้าง qNo แบบปลอดชน ถ้าไม่ส่งมา หรือส่งมาซ้ำ
+    let qNo = (body.qNo || "").trim();
+    if (!qNo || await qNoExists(qNo)) {
+      qNo = await genQNoSafe(body.qDate || null);
+    }
+
     const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
     const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
     const grandTotal  = +(totalBefore - discount).toFixed(2);
 
     const headObj = await addAuditOnCreate(T_HEAD, {
-      qNo                    : body.qNo || null,
+      qNo,
       qDate                  : body.qDate || null,
       status                 : body.confirmed ? "Confirmed" : "Draft",
       customerCode           : cust.code || "",
@@ -466,6 +493,7 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
     const head = await db.prepare(sqlH).bind(...bindH).first();
 
     if (items.length) {
+      // ใช้เฉพาะคอลัมน์ที่มีจริงในสคีมา
       const ins = db.prepare(`
         INSERT INTO ${T_ITEMS}
           (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
@@ -511,20 +539,22 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
     const head = await db.prepare(sql).bind(...bind, idFromPath).first();
     if (!head) return err("not found", 404);
 
+    // เคลียร์ items เดิมของ qNo (ใช้ qNo หลังอัปเดต)
     await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+
     if (items.length) {
       const ins = db.prepare(`
         INSERT INTO ${T_ITEMS}
-          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, remark, CreateDate, UpdateDate, CreateBy, UpdateBy)
+          (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
         VALUES
-          (?,   ?,        ?,        ?,   ?,         ?,         '',     datetime('now'), datetime('now'), ?, ?)
+          (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
       `);
       for (const it of items) {
         const qty  = Number(it.qty || 0);
         const price= Number(it.price || 0);
         const disc = Number(it.discount || 0);
         const line = Math.max(0, qty * price - disc);
-        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line, user, user).run();
+        await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
       }
     }
     return send(head);
@@ -539,6 +569,7 @@ if (seg[0] === "sales" && seg[1] === "quotations") {
 
   return err("method not allowed", 405);
 }
+
 
   // ===== Sales: Orders (หน้าใช้ตารางนี้ + payload) =====
   if (seg[0]==="sales" && seg[1]==="orders") {
