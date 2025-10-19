@@ -1,5 +1,104 @@
 // functions/api/[[path]].js
+/* ===== GEO (Single-table) – helpers & router  ===== */
+/* ถ้ามี json() อยู่แล้ว ให้ลบบรรทัดนี้ทิ้ง แล้วใช้ json() ของคุณแทนได้ */
+const asJson = (data, status=200, headers={}) =>
+  new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", ...headers } });
+
+async function geoEnsureSingle(db) {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS geo_admin (
+      id        INTEGER PRIMARY KEY,
+      parent_id INTEGER,
+      level     TEXT NOT NULL CHECK(level IN ('province','amphure','tambon')),
+      name      TEXT NOT NULL,
+      zipcode   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_geo_admin_level      ON geo_admin(level);
+    CREATE INDEX IF NOT EXISTS idx_geo_admin_parent     ON geo_admin(parent_id);
+    CREATE INDEX IF NOT EXISTS idx_geo_admin_zip        ON geo_admin(zipcode);
+    CREATE INDEX IF NOT EXISTS idx_geo_admin_level_name ON geo_admin(level, name);
+  `);
+}
+
+/* (เลือกได้) seed เบา ๆ เพื่อให้หน้า UI ทดลองใช้งานได้ทันที */
+const GEO_ENABLE_MINI_SEED = true;
+async function geoMaybeMiniSeed(db){
+  if (!GEO_ENABLE_MINI_SEED) return;
+  const row = await db.prepare(`SELECT COUNT(*) n FROM geo_admin`).first();
+  if (row?.n > 0) return;
+  await db.batch([
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(10,    null, 'province', 'กรุงเทพมหานคร', null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(11,    null, 'province', 'สมุทรปราการ',  null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(12,    null, 'province', 'นนทบุรี',       null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(1001,  10,   'amphure',  'พระนคร',        null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(1002,  10,   'amphure',  'ดุสิต',         null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(1012,  10,   'amphure',  'ห้วยขวาง',      null),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(101201,1012, 'tambon',   'ห้วยขวาง',      '10310'),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(101202,1012, 'tambon',   'บางกะปิ (แขวง)','10310'),
+    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(100101,1001, 'tambon',   'พระบรมมหาราชวัง','10200')
+  ]);
+}
+
+async function handleGeoSingle(ctx, path, db) {
+  await geoEnsureSingle(db);
+  await geoMaybeMiniSeed(db);
+
+  // ===== Read-only endpoints (Frontend ใช้อยู่แล้ว) =====
+  if (path === 'geo/provinces') {
+    const rows = await db.prepare(
+      `SELECT id, name FROM geo_admin WHERE level='province' ORDER BY name`
+    ).all();
+    return (typeof json === 'function' ? json(rows) : asJson(rows));
+  }
+
+  if (path.startsWith('geo/amphures')) {
+    const url = new URL(ctx.request.url);
+    const pid = url.searchParams.get('province_id');
+    if (!pid) return (typeof json === 'function' ? json({ error:'province_id required' }, 400) : asJson({ error:'province_id required' }, 400));
+    const rows = await db.prepare(
+      `SELECT id, name, parent_id AS province_id
+         FROM geo_admin
+        WHERE level='amphure' AND parent_id=?
+        ORDER BY name`
+    ).bind(pid).all();
+    return (typeof json === 'function' ? json(rows) : asJson(rows));
+  }
+
+  if (path.startsWith('geo/tambons')) {
+    const url = new URL(ctx.request.url);
+    const aid = url.searchParams.get('amphure_id');
+    if (!aid) return (typeof json === 'function' ? json({ error:'amphure_id required' }, 400) : asJson({ error:'amphure_id required' }, 400));
+    const rows = await db.prepare(
+      `SELECT id, name, zipcode, parent_id AS amphure_id
+         FROM geo_admin
+        WHERE level='tambon' AND parent_id=?
+        ORDER BY name`
+    ).bind(aid).all();
+    return (typeof json === 'function' ? json(rows) : asJson(rows));
+  }
+
+  // ===== Utilities (เอาไว้เช็คยอด/ล้าง) =====
+  if (path === 'geo/status') {
+    const p = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='province'`).first();
+    const a = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='amphure'`).first();
+    const t = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='tambon'`).first();
+    const payload = { provinces: p?.n || 0, amphures: a?.n || 0, tambons: t?.n || 0 };
+    return (typeof json === 'function' ? json(payload) : asJson(payload));
+  }
+
+  if (path === 'geo/clear' && ctx.request.method === 'POST') {
+    await db.exec(`DELETE FROM geo_admin`);
+    const payload = { ok:true, cleared:true };
+    return (typeof json === 'function' ? json(payload) : asJson(payload));
+  }
+
+  return null; // not a geo route
+}
+/* ===== /GEO (Single-table) ===== */
+
 export const onRequest = async (ctx) => {
+  const r = await handleGeoSingle({ request }, path, db);
+  if (r) return r;
   const { request, env } = ctx;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
