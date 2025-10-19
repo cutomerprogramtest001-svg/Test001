@@ -1461,7 +1461,7 @@
                       x-text="r.status"></span>
               </td>
               <td class="px-3 py-2 border whitespace-nowrap">
-                <button class="text-blue-600 hover:underline mr-3" @click="editById(r.id)">✏️ Edit</button>
+                <button class="text-blue-600 hover:underline" @click="editById(r.id)">✏️ Edit</button>
                 <button class="text-red-600 hover:underline" @click="del(visibleQuotes().findIndex(x=>x.id===r.id))">Delete</button>
               </td>
             </tr>
@@ -4569,7 +4569,7 @@ window.customerApp = function customerApp(){
   };
 };
 
-  // ===== Sales » Quotation =====
+  // ===== Sales » Quotation (READY) =====
   window.quotationApp = function quotationApp(){
     return {
       // --- state ---
@@ -4578,7 +4578,7 @@ window.customerApp = function customerApp(){
       showSug: false,
       customerSug: [],
       customerSearch: "",
-      // item presets (เปลี่ยนชื่อ/ราคาได้)
+      // item presets (ปรับได้ตามต้องการ)
       packages: [
         { code:'ITM-A', name:'Basic Care', items:[
           { service:'ตรวจ/ปรึกษา', tooth:'ทั้งปาก', qty:1, price:0,    discount:0 }
@@ -4613,9 +4613,8 @@ window.customerApp = function customerApp(){
       },
       async reload(){
         const res = await api('/api/sales/quotations');
-        this.quotes = Array.isArray(res) ? res : (res?.data || []);
+        this.quotes = Array.isArray(res) ? res : (res?.data || res?.results || []);
       },
-
 
       // --- helpers ---
       previewQuotationNo(){
@@ -4682,7 +4681,6 @@ window.customerApp = function customerApp(){
 
       visibleQuotes(){
         const arr = Array.isArray(this.quotes) ? this.quotes : [];
-        // map ป้องกันคอลัมน์ null และเรียงจาก id ล่าสุดก่อน
         return arr
           .map(r => ({
             id: r.id,
@@ -4692,21 +4690,20 @@ window.customerApp = function customerApp(){
             customerCode: r.customerCode || '',
             customerFirstName: r.customerFirstName || '',
             customerLastName: r.customerLastName || '',
+            customerNationalId: r.customerNationalId || '',
+            note: r.note || '',
             grandTotal: r.grandTotal ?? null
           }))
           .sort((a,b)=> (b.id||0) - (a.id||0));
       },
-
 
       // ---- formatting helper & aliases for your Totals UI ----
       formatMoney(n){
         const v = Number.isFinite(+n) ? +n : 0;
         return v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       },
-      // alias ให้ตรงกับ HTML ของคุณ
       sumBefore(){ return this.sumTotalBefore(); },
       netTotal(){  return this.sumGrand(); },
-
 
       // --- confirm/lock ---
       canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code; },
@@ -4715,7 +4712,7 @@ window.customerApp = function customerApp(){
         this.form.confirmed = true;
         this.toast("Confirmed.");
       },
-      unconfirmQuote(){ // optional: ปลดล็อก (ถ้าไม่ต้องการ ลบเมธอด/ปุ่มเรียก)
+      unconfirmQuote(){
         this.form.confirmed = false;
         this.toast("Unconfirmed.");
       },
@@ -4733,22 +4730,41 @@ window.customerApp = function customerApp(){
         this.customerSearch = "";
         this.previewQuotationNo();
       },
+
+      // เรียกด้วย index เดิมก็ได้ แต่ภายในจะสลับไปใช้ id ที่เสถียรกว่า
       async edit(i){
-        this.editingIndex = i;
-        const row = this.quotes[i];
-        if(!row || !row.id){ this.editingIndex=null; return; }
-        const full = await api(`/api/sales/quotations/${row.id}`);
+        if (i==null || i<0 || !this.quotes[i]) return;
+        const id = this.quotes[i].id;
+        await this.editById(id);
+      },
+      async editById(id){
+        if(!id) return;
+        const full = await api(`/api/sales/quotations/${id}`);
+        // map กลับเข้าฟอร์มให้ครบ และคอนเวิร์ตเป็นตัวเลข
         this.form = {
-          id:        row.id || null,
-          qNo:       full.qNo || row.qNo || "",
-          qDate:     full.qDate || row.qDate || "",
-          customer:  full.customer || { code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-          items:     Array.isArray(full.items) ? full.items : [],
-          note:      full.note || "",
-          confirmed: (full.status||row.status) === "Confirmed"
+          id,
+          qNo      : full.qNo || "",
+          qDate    : full.qDate || "",
+          customer : full.customer || { code:"", firstName:"", lastName:"", nationalId:"", age:"" },
+          items    : Array.isArray(full.items) ? full.items.map(it=>({
+                       service: it.service||"",
+                       tooth:   it.tooth||"",
+                       qty:     Number(it.qty||0),
+                       price:   Number(it.price||0),
+                       discount:Number(it.discount||0)
+                     })) : [],
+          note     : full.note || "",
+          confirmed: (full.status||"") === "Confirmed"
         };
-        this.customerSearch = this.form.customer.code ? `${this.form.customer.code} — ${this.form.customer.firstName} ${this.form.customer.lastName}` : "";
+        this.customerSearch = this.form.customer.code
+          ? `${this.form.customer.code} — ${this.form.customer.firstName} ${this.form.customer.lastName}`
+          : "";
         this.showSug = false;
+
+        // เซ็ต editingIndex ให้ Save รู้ว่าเป็นการอัปเดต
+        const idx = (this.quotes||[]).findIndex(r=>String(r.id)===String(id));
+        this.editingIndex = idx>=0 ? idx : null;
+
         this.toast("โหลดใบเสนอราคามาแก้ไขแล้ว");
       },
 
@@ -4774,9 +4790,9 @@ window.customerApp = function customerApp(){
         }
         await this.reload();
         this.toast("Saved.");
-        // ถ้ายังไม่ยืนยัน ปล่อยให้แก้ต่อได้ / ถ้าต้องการรีเซ็ตฟอร์มหลัง save ให้เปิดบรรทัดถัดไป
-        // this.resetForm();
+        this.resetForm();   // ✅ ล้างฟอร์มหลัง Save/Update
       },
+
       async del(i){
         const row = this.quotes[i];
         if(!row || !row.id) return;
