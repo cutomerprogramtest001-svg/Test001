@@ -959,7 +959,6 @@
 <main class="flex-grow p-6 max-w-7xl mx-auto">
 <!-- Module 1: Customer Profile -->
 <!-- 🧑‍⚕️ Customer Profile -->
-
 <div x-show="mainTab === 'sales' && open === 'customer'" x-data="customerApp()" x-init="init()" x-cloak>
   <div class="bg-white p-6 rounded shadow space-y-6 max-w-7xl mx-auto">
 
@@ -968,17 +967,18 @@
       <h2 class="text-2xl font-semibold">🧑‍⚕️ Customer Profile</h2>
 
       <div class="relative w-full md:w-96">
-        <input class="w-full border rounded px-3 py-2 pr-10" placeholder="🔎 ค้นหา: ชื่อ, นามสกุล หรือ National ID"
+        <input class="w-full border rounded px-3 py-2 pr-10" placeholder="🔎 ค้นหา: ชื่อ/บริษัท, นามสกุล หรือ National ID"
                x-model.trim="searchQuery" @input="onSearchInput()" @keydown.escape="showSug=false">
         <button class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" @click="searchQuery='';showSug=false">✕</button>
 
         <!-- dropdown suggestions -->
         <div class="absolute z-20 mt-1 w-full bg-white border rounded shadow max-h-64 overflow-auto" x-show="showSug">
           <template x-for="c in searchSuggestions" :key="c.code">
-            <div class="px-3 py-2 hover:bg-gray-50 cursor-pointer"
-                 @click="pickSuggestion(c)">
-              <div class="text-sm font-medium" x-text="`${c.code} — ${c.firstName} ${c.lastName}`"></div>
-              <div class="text-xs text-gray-500" x-text="`ID: ${c.nationalId || '-'}`"></div>
+            <div class="px-3 py-2 hover:bg-gray-50 cursor-pointer" @click="pickSuggestion(c)">
+              <div class="text-sm font-medium"
+                   x-text="c.customerType==='corporate' ? `${c.code} — ${c.companyName}` : `${c.code} — ${c.firstName} ${c.lastName}`"></div>
+              <div class="text-xs text-gray-500"
+                   x-text="c.customerType==='corporate' ? `Tax: ${c.taxId || '-'}` : `ID: ${c.nationalId || '-'}`"></div>
             </div>
           </template>
           <div class="px-3 py-2 text-sm text-gray-500" x-show="searchSuggestions.length===0">ไม่พบข้อมูล</div>
@@ -986,64 +986,120 @@
       </div>
     </div>
 
+    <!-- type + payment -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium">ประเภทลูกค้า</label>
+        <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.customerType">
+          <option value="individual">บุคคลธรรมดา</option>
+          <option value="corporate">นิติบุคคล (บริษัท/หจก.)</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium">การชำระเงิน</label>
+        <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.paymentType">
+          <option value="cash">เงินสด</option>
+          <option value="credit">เครดิต</option>
+        </select>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4" x-show="isCredit" x-cloak>
+        <div>
+          <label class="block text-sm font-medium">เครดิต (วัน)</label>
+          <input class="mt-1 w-full border px-3 py-2 rounded" type="number" min="1" x-model.number="form.creditDays" placeholder="เช่น 30">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">วงเงินเครดิต</label>
+          <input class="mt-1 w-full border px-3 py-2 rounded" type="number" min="1" step="0.01" x-model.number="form.creditLimit" placeholder="เช่น 50000">
+        </div>
+      </div>
+    </div>
+
     <!-- form -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-
       <!-- auto code -->
       <div>
         <label class="block text-sm font-medium">รหัสลูกค้า</label>
         <input class="mt-1 w-full border px-3 py-2 rounded bg-gray-100" x-model="form.code" readonly>
       </div>
 
-      <div>
-        <label class="block text-sm font-medium">ชื่อ</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.firstName" placeholder="เช่น เจมจิรา">
-      </div>
+      <!-- ============ INDIVIDUAL SECTION ============ -->
+      <template x-if="!isCorporate">
+        <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium">ชื่อ</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.firstName" placeholder="เช่น เจมจิรา">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">นามสกุล</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.lastName" placeholder="เช่น เอล">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">เพศ</label>
+            <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.gender">
+              <option value="">-- เลือก --</option>
+              <option>ชาย</option><option>หญิง</option><option>อื่นๆ</option>
+            </select>
+          </div>
 
-      <div>
-        <label class="block text-sm font-medium">นามสกุล</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.lastName" placeholder="เช่น เอล">
-      </div>
+          <div>
+            <label class="block text-sm font-medium">วันเกิด</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" type="date" x-model="form.birthday" @change="updateAge()">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">อายุ</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded bg-gray-100" x-model="form.age" readonly>
+          </div>
+          <div>
+            <label class="block text-sm font-medium">National ID</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded"
+                   :class="{'border-red-500': form.nationalId && form.nationalId.length !== 13}"
+                   x-model="form.nationalId"
+                   maxlength="13" placeholder="เลขบัตร 13 หลัก"
+                   @input="form.nationalId=form.nationalId.replace(/\D/g,'').slice(0,13)">
+            <p class="text-xs mt-1" :class="(form.nationalId && form.nationalId.length !== 13)?'text-red-600':'text-gray-500'">
+              ต้องกรอกเลข 13 หลักครบถ้วน
+            </p>
+          </div>
 
-      <div>
-        <label class="block text-sm font-medium">เพศ</label>
-        <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.gender">
-          <option value="">-- เลือก --</option>
-          <option>ชาย</option><option>หญิง</option><option>อื่นๆ</option>
-        </select>
-      </div>
+          <div>
+            <label class="block text-sm font-medium">เบอร์โทรศัพท์</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.phone">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">อีเมล</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" type="email" x-model.trim="form.email">
+          </div>
+        </div>
+      </template>
 
-      <div>
-        <label class="block text-sm font-medium">วันเกิด</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded" type="date" x-model="form.birthday" @change="updateAge()">
-      </div>
+      <!-- ============ CORPORATE SECTION ============ -->
+      <template x-if="isCorporate">
+        <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium">ชื่อบริษัท / หจก.</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.companyName" placeholder="เช่น บริษัท เอ บี ซี จำกัด">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">เลขผู้เสียภาษี (Tax ID)</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.taxId" placeholder="13 หลัก">
+          </div>
 
-      <div>
-        <label class="block text-sm font-medium">อายุ</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded bg-gray-100" x-model="form.age" readonly>
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">เบอร์โทรศัพท์</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.phone">
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">อีเมล</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded" type="email" x-model.trim="form.email">
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">National ID</label>
-        <input class="mt-1 w-full border px-3 py-2 rounded"
-               :class="{'border-red-500': form.nationalId && form.nationalId.length !== 13}"
-               x-model="form.nationalId"
-               maxlength="13" placeholder="เลขบัตร 13 หลัก"
-               @input="form.nationalId=form.nationalId.replace(/\D/g,'').slice(0,13)">
-        <p class="text-xs mt-1" :class="(form.nationalId && form.nationalId.length !== 13)?'text-red-600':'text-gray-500'">
-          ต้องกรอกเลข 13 หลักครบถ้วน
-        </p>
-      </div>
+          <div>
+            <label class="block text-sm font-medium">สาขา/รหัสสาขา</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.branchCode" placeholder="เช่น สำนักงานใหญ่ / 00000">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">ผู้ติดต่อหลัก</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.contactPerson" placeholder="ชื่อ–นามสกุล">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">โทรศัพท์ผู้ติดต่อ</label>
+            <input class="mt-1 w-full border px-3 py-2 rounded" x-model.trim="form.contactPhone" placeholder="เช่น 0812345678">
+          </div>
+        </div>
+      </template>
 
       <!-- address line -->
       <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-6 gap-4">
@@ -1061,28 +1117,28 @@
         </div>
         <div>
           <label class="block text-sm font-medium">จังหวัด</label>
-          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="addr.provinceId" @change="onProvinceChange()">
+          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.addr.provinceId" @change="onProvinceChange()">
             <option value="">-- เลือกจังหวัด --</option>
             <template x-for="p in provinces" :key="p.id">
-              <option :value="p.id" x-text="p.name_th"></option>
+              <option :value="p.id" x-text="p.name"></option>
             </template>
           </select>
         </div>
         <div>
           <label class="block text-sm font-medium">อำเภอ</label>
-          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="addr.amphureId" @change="onAmphureChange()">
+          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.addr.amphureId" @change="onAmphureChange()">
             <option value="">-- เลือกอำเภอ --</option>
             <template x-for="a in amphures" :key="a.id">
-              <option :value="a.id" x-text="a.name_th"></option>
+              <option :value="a.id" x-text="a.name"></option>
             </template>
           </select>
         </div>
         <div>
           <label class="block text-sm font-medium">ตำบล</label>
-          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="addr.tambonId" @change="applyTambonZip()">
+          <select class="mt-1 w-full border px-3 py-2 rounded" x-model="form.addr.tambonId" @change="applyTambonZip()">
             <option value="">-- เลือกตำบล --</option>
             <template x-for="t in tambons" :key="t.id">
-              <option :value="t.id" x-text="t.name_th"></option>
+              <option :value="t.id" x-text="t.name"></option>
             </template>
           </select>
         </div>
@@ -1139,12 +1195,12 @@
       <h3 class="text-lg font-semibold mb-2">📚 รายชื่อลูกค้า</h3>
 
       <div class="flex flex-wrap gap-3 mb-3">
-        <input class="border rounded px-3 py-2 w-full md:w-72" placeholder="กรอง: ชื่อ/สกุล/รหัส/ID"
+        <input class="border rounded px-3 py-2 w-full md:w-72" placeholder="กรอง: ชื่อ/บริษัท/รหัส/ID"
                x-model.trim="filter.keyword">
         <select class="border rounded px-3 py-2" x-model="filter.provinceId">
           <option value="">จังหวัดทั้งหมด</option>
           <template x-for="p in provinces" :key="'flt-'+p.id">
-            <option :value="p.id" x-text="p.name_th"></option>
+            <option :value="p.id" x-text="p.name"></option>
           </template>
         </select>
       </div>
@@ -1154,13 +1210,14 @@
           <thead class="bg-gray-100">
             <tr>
               <th class="px-2 py-2 border text-left">รหัส</th>
-              <th class="px-2 py-2 border text-left">ชื่อ</th>
+              <th class="px-2 py-2 border text-left">ประเภท</th>
+              <th class="px-2 py-2 border text-left">ชื่อ/บริษัท</th>
               <th class="px-2 py-2 border text-left">นามสกุล</th>
-              <th class="px-2 py-2 border text-left">อายุ</th>
+              <th class="px-2 py-2 border text-left">ชำระเงิน</th>
               <th class="px-2 py-2 border text-left">เพศ</th>
               <th class="px-2 py-2 border text-left">โทร</th>
               <th class="px-2 py-2 border text-left">จังหวัด</th>
-              <th class="px-2 py-2 border text-left">National ID</th>
+              <th class="px-2 py-2 border text-left">ID/Tax</th>
               <th class="px-2 py-2 border text-center">Actions</th>
             </tr>
           </thead>
@@ -1168,13 +1225,15 @@
             <template x-for="(c, i) in filteredCustomers()" :key="c.code + i">
               <tr class="hover:bg-gray-50">
                 <td class="px-2 py-2 border" x-text="c.code"></td>
-                <td class="px-2 py-2 border" x-text="c.firstName"></td>
-                <td class="px-2 py-2 border" x-text="c.lastName"></td>
-                <td class="px-2 py-2 border" x-text="c.age || '-'"></td>
-                <td class="px-2 py-2 border" x-text="c.gender || '-'"></td>
+                <td class="px-2 py-2 border" x-text="c.customerType==='corporate' ? 'นิติบุคคล' : 'บุคคลธรรมดา'"></td>
+                <td class="px-2 py-2 border" x-text="c.customerType==='corporate' ? (c.companyName||'-') : (c.firstName||'-')"></td>
+                <td class="px-2 py-2 border" x-text="c.customerType==='corporate' ? '-' : (c.lastName||'-')"></td>
+                <td class="px-2 py-2 border"
+                    x-text="c.paymentType==='credit' ? `เครดิต (${c.creditDays||0}วัน / ${Number(c.creditLimit||0).toLocaleString()})` : 'เงินสด'"></td>
+                <td class="px-2 py-2 border" x-text="c.customerType==='corporate' ? '-' : (c.gender || '-')"></td>
                 <td class="px-2 py-2 border" x-text="c.phone || '-'"></td>
                 <td class="px-2 py-2 border" x-text="(c.addr?.provinceName)||'-'"></td>
-                <td class="px-2 py-2 border" x-text="c.nationalId || '-'"></td>
+                <td class="px-2 py-2 border" x-text="c.customerType==='corporate' ? (c.taxId||'-') : (c.nationalId||'-')"></td>
                 <td class="px-2 py-2 border text-center space-x-3">
                   <button class="text-blue-600 hover:underline" @click="edit(i)">Edit</button>
                   <button class="text-red-600 hover:underline" @click="remove(i)">Delete</button>
@@ -1182,7 +1241,7 @@
               </tr>
             </template>
             <tr x-show="filteredCustomers().length===0">
-              <td colspan="9" class="text-center text-gray-500 p-4">ไม่มีข้อมูล</td>
+              <td colspan="10" class="text-center text-gray-500 p-4">ไม่มีข้อมูล</td>
             </tr>
           </tbody>
         </table>
@@ -4293,282 +4352,370 @@ window.attendanceApp = function attendanceApp(){
 })();
 
   // ===== Sales » Customer =====
-window.customerApp = function customerApp(){
-  // --- mapper helpers (scope ภายใน) ---
-  const fromRow = (row = {}) => {
-    let payload = {};
-    try { payload = row.payload ? JSON.parse(row.payload) : {}; } catch(e){ payload = {}; }
-    return {
-      id: row.id,
-      code: row.code || '',
-      firstName: row.firstName || '',
-      lastName: row.lastName || '',
-      nationalId: row.nationalId || '',
-      gender: row.gender || '',
-      birthday: row.birthday || '',
-      age: row.age || '',
-      phone: row.phone || '',
-      email: row.email || '',
-      addr: {
-        no: row.addr_no ?? payload?.addr?.no ?? '',
-        road: row.addr_road ?? payload?.addr?.road ?? '',
-        soi: row.addr_soi ?? payload?.addr?.soi ?? '',
-        provinceId: row.provinceId ?? payload?.addr?.provinceId ?? '',
-        provinceName: row.provinceName ?? payload?.addr?.provinceName ?? '',
-        amphureId: row.amphureId ?? payload?.addr?.amphureId ?? '',
-        amphureName: row.amphureName ?? payload?.addr?.amphureName ?? '',
-        tambonId: row.tambonId ?? payload?.addr?.tambonId ?? '',
-        tambonName: row.tambonName ?? payload?.addr?.tambonName ?? '',
-        postcode: row.postcode ?? payload?.addr?.postcode ?? ''
-      },
-      medical: payload?.medical || { diseases:[], diseaseOther:'', allergies:[], allergyOther:'' }
-    };
-  };
+  window.customerApp = function customerApp(){
+    // --- mapper helpers (scope ภายใน) ---
+    const fromRow = (row = {}) => {
+      let payload = {};
+      try { payload = row.payload ? JSON.parse(row.payload) : {}; } catch(e){ payload = {}; }
 
-  const toPayload = (f) => {
-    const base = {
-      code: f.code?.trim() || '',
-      firstName: f.firstName || '',
-      lastName: f.lastName || '',
-      nationalId: f.nationalId || '',
-      gender: f.gender || '',
-      birthday: f.birthday || '',
-      age: f.age || '',
-      phone: f.phone || '',
-      email: f.email || '',
-      // ที่อยู่ (ถ้าตารางคุณมีคอลัมน์เหล่านี้ใน D1)
-      addr_no: f.addr?.no || null,
-      addr_road: f.addr?.road || null,
-      addr_soi: f.addr?.soi || null,
-      provinceId: f.addr?.provinceId || null,
-      provinceName: f.addr?.provinceName || null,
-      amphureId: f.addr?.amphureId || null,
-      amphureName: f.addr?.amphureName || null,
-      tambonId: f.addr?.tambonId || null,
-      tambonName: f.addr?.tambonName || null,
-      postcode: f.addr?.postcode || null,
-      // เก็บสำรองใน payload JSON เผื่อคอลัมน์ address ไม่มีครบ
-      payload: JSON.stringify({ addr: f.addr || {}, medical: f.medical || {} })
-    };
-    // ลบ key ที่เป็น null เพื่อหลบ NOT NULL constraints (ถ้ามี)
-    Object.keys(base).forEach(k => (base[k] == null) && delete base[k]);
-    return base;
-  };
+      return {
+        id: row.id,
+        code: row.code || '',
+        // ------- Individual fields -------
+        firstName: row.firstName || '',
+        lastName: row.lastName || '',
+        nationalId: row.nationalId || '',
+        gender: row.gender || '',
+        birthday: row.birthday || '',
+        age: row.age || '',
+        phone: row.phone || '',
+        email: row.email || '',
 
-  return {
-    // --- state ---
-    provinces: [], amphures: [], tambons: [],
-    addr: { provinceId:"", amphureId:"", tambonId:"" },
+        // ------- Corporate fields -------
+        companyName  : row.companyName   ?? payload?.companyName   ?? '',
+        taxId        : row.taxId         ?? payload?.taxId         ?? '',
+        branchCode   : row.branchCode    ?? payload?.branchCode    ?? '',
+        contactPerson: row.contactPerson ?? payload?.contactPerson ?? '',
+        contactPhone : row.contactPhone  ?? payload?.contactPhone  ?? '',
 
-    customers: [],
-    editingIndex: null,
-    searchQuery:"", showSug:false, searchSuggestions:[],
-    filter:{ keyword:"", provinceId:"" },
+        // ------- Payment/Credit -------
+        customerType : row.customerType  ?? payload?.customerType  ?? 'individual', // 'individual'|'corporate'
+        paymentType  : row.paymentType   ?? payload?.paymentType   ?? 'cash',       // 'cash'|'credit'
+        creditDays   : (row.creditDays ?? payload?.creditDays ?? 0) * 1,
+        creditLimit  : (row.creditLimit ?? payload?.creditLimit ?? 0) * 1,
 
-    form: {
-      id:null, code:"", firstName:"", lastName:"", nationalId:"",
-      gender:"", birthday:"", age:"", phone:"", email:"",
-      addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-      medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
-    },
+        // ------- Address -------
+        addr: {
+          no:            row.addr_no       ?? payload?.addr?.no       ?? '',
+          road:          row.addr_road     ?? payload?.addr?.road     ?? '',
+          soi:           row.addr_soi      ?? payload?.addr?.soi      ?? '',
+          provinceId:    row.provinceId    ?? payload?.addr?.provinceId ?? '',
+          provinceName:  row.provinceName  ?? payload?.addr?.provinceName ?? '',
+          amphureId:     row.amphureId     ?? payload?.addr?.amphureId ?? '',
+          amphureName:   row.amphureName   ?? payload?.addr?.amphureName ?? '',
+          tambonId:      row.tambonId      ?? payload?.addr?.tambonId ?? '',
+          tambonName:    row.tambonName    ?? payload?.addr?.tambonName ?? '',
+          postcode:      row.postcode      ?? payload?.addr?.postcode ?? ''
+        },
 
-    // --- lifecycle ---
-    async init(){
-    try {
-      const pv = await api(`/api/geo/provinces`);
-      this.provinces = (pv?.data || pv || []).map(p => ({ id:p.id, name:p.nameTh || p.nameEn || String(p.id) }));
-    } catch(e) { this.provinces = []; console.error('load provinces', e); }
-  
-    if (this.form?.addr?.provinceId) {
-      await this.onProvinceChange();
-      if (this.form?.addr?.amphureId) await this.onAmphureChange();
-    }
-    await this.reload();
-    this._genCode();
-  },
-
-    // --- utils ---
-    // --- utils ---
-    _genCode(){
-      // สร้างเฉพาะตอนเป็นเรคคอร์ดใหม่ หรือ code ยังว่าง/-TMP เท่านั้น
-      if (this.form?.id) return;
-      if (this.form?.code && this.form.code !== '-TMP') return;
-
-      // วันที่แบบโลคัล (Asia/Bangkok) → YYYYMMDD
-      const pad2 = n => String(n).padStart(2, '0');
-      const now  = new Date();           // ใช้เวลาเครื่อง (โลคัล)
-      const y    = now.getFullYear();
-      const m    = pad2(now.getMonth()+1);
-      const d    = pad2(now.getDate());
-      const ymd  = `${y}${m}${d}`;
-
-      // หาเลขรันสูงสุดของวันนี้จากรายการที่มีอยู่ แล้ว +1
-      const prefix = `CU${ymd}-`;
-      const list   = Array.isArray(this.customers) ? this.customers : [];
-      const todays = list
-        .map(c => c?.code)
-        .filter(code => typeof code === 'string' && code.startsWith(prefix));
-
-      let next = 1;
-      if (todays.length) {
-        const lastMax = todays
-          .map(code => parseInt(code.slice(prefix.length), 10))
-          .filter(n => Number.isInteger(n))
-          .sort((a,b) => b - a)[0];
-        next = (lastMax || 0) + 1;
-      }
-
-      const run = String(next).padStart(4, '0'); // ปรับกว้างตามต้องการ (เช่น 4 หลัก)
-      this.form.code = `${prefix}${run}`;
-    },
-
-    updateAge(){
-      if(!this.form.birthday){ this.form.age=""; return; }
-      try{
-        const b = new Date(this.form.birthday);
-        const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25);
-        this.form.age = String(Math.floor(diff));
-      }catch(e){ this.form.age = ""; }
-    },
-    canSave(){ return !!(this.form.code && this.form.firstName && this.form.lastName); },
-
-    // --- API calls ---
-    async reload(){
-      try{
-        const p = new URLSearchParams();
-        if (this.filter.keyword) p.set('search', this.filter.keyword);
-        p.set('limit', 100); p.set('offset', 0);
-        const res = await api(`/api/sales/customers?${p.toString()}`);
-        const list = res?.data || res || [];
-        this.customers = list.map(fromRow);
-      }catch(err){
-        window.toast?.('โหลดลูกค้าล้มเหลว','error'); console.error(err);
-      }
-    },
-    async suggest(q){
-      const s = (q ?? this.searchQuery ?? '').trim();
-      if(!s){ this.searchSuggestions=[]; this.showSug=false; return; }
-      try{
-        const p = new URLSearchParams({ search: s, limit: 12, offset: 0 });
-        const res = await api(`/api/sales/customers?${p.toString()}`);
-        const list = res?.data || res || [];
-        this.searchSuggestions = list.map(fromRow);
-        this.showSug = true;
-      }catch(e){ this.searchSuggestions=[]; this.showSug=false; }
-    },
-
-    // --- actions ---
-    onSearchInput(){ this.suggest(this.searchQuery); },
-    pickSuggestion(c){
-      const idx = this.customers.findIndex(x => x.id === c.id);
-      if (idx >= 0) this.edit(idx);
-      this.showSug = false;
-    },
-    
-    // 2) แทนที่ onProvinceChange()
-    onProvinceChange: async function(){
-      const pid = Number(this.form?.addr?.provinceId || 0) || 0;
-      this.amphures = []; this.tambons = [];
-      this.form.addr.amphureId = ""; this.form.addr.tambonId = "";
-      if (!pid) return;
-      try{
-        const ap = await api(`/api/geo/amphures?province_id=${pid}`);
-        this.amphures = (ap?.data || ap || []).map(a => ({ id:a.id, name:a.nameTh || a.nameEn || String(a.id) }));
-      }catch(e){ this.amphures = []; console.error('load amphures', e); }
-    },
-    
-    // 3) แทนที่ onAmphureChange()
-    onAmphureChange: async function(){
-      const aid = Number(this.form?.addr?.amphureId || 0) || 0;
-      this.tambons = []; this.form.addr.tambonId = "";
-      if (!aid) return;
-      try{
-        const tb = await api(`/api/geo/tambons?amphure_id=${aid}`);
-        this.tambons = (tb?.data || tb || []).map(t => ({ id:t.id, name:t.nameTh || t.nameEn || String(t.id), zipcode:t.zipcode||"" }));
-      }catch(e){ this.tambons = []; console.error('load tambons', e); }
-    },
-    
-    // 4) แทนที่ applyTambonZip()
-    applyTambonZip(){
-      const tid = Number(this.form?.addr?.tambonId || 0) || 0;
-      if (!tid) return;
-      const t = this.tambons.find(x => Number(x.id) === tid);
-      if (t?.zipcode) this.form.addr.postcode = t.zipcode;
-    },
-
-    resetForm(){
-      this.editingIndex = null;
-      this.form = {
-        id:null, code:"", firstName:"", lastName:"", nationalId:"",
-        gender:"", birthday:"", age:"", phone:"", email:"",
-        addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
-        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+        // ------- Medical (สำรองใน payload) -------
+        medical: payload?.medical || { diseases:[], diseaseOther:'', allergies:[], allergyOther:'' }
       };
-      this._genCode();
-    },
+    };
 
-    async save(){
-      if(!this.canSave()){ window.toast?.('กรอก Code/ชื่อ-นามสกุล ให้ครบก่อน','error'); return; }
-      try{
-        const payload = toPayload(this.form);
-        let saved;
-        if (this.form.id){
-          saved = await api(`/api/sales/customers/${this.form.id}`, { method:'PUT', body: payload });
-        }else{
-          saved = await api(`/api/sales/customers`, { method:'POST', body: payload });
+    const toPayload = (f) => {
+      const base = {
+        // ------- Common / Individual -------
+        code: f.code?.trim() || '',
+        firstName: f.firstName || '',
+        lastName:  f.lastName  || '',
+        nationalId: f.nationalId || '',
+        gender: f.gender || '',
+        birthday: f.birthday || '',
+        age: f.age || '',
+        phone: f.phone || '',
+        email: f.email || '',
+
+        // ------- Corporate columns in table -------
+        companyName  : f.companyName   || null,
+        taxId        : f.taxId         || null,
+        branchCode   : f.branchCode    || null,
+        contactPerson: f.contactPerson || null,
+        contactPhone : f.contactPhone  || null,
+
+        // ------- Payment/Credit columns in table -------
+        customerType : f.customerType  || 'individual',
+        paymentType  : f.paymentType   || 'cash',
+        creditDays   : Number(f.creditDays || 0),
+        creditLimit  : Number(f.creditLimit || 0),
+
+        // ------- Address columns in table -------
+        addr_no:        f.addr?.no           || null,
+        addr_road:      f.addr?.road         || null,
+        addr_soi:       f.addr?.soi          || null,
+        provinceId:     f.addr?.provinceId   || null,
+        provinceName:   f.addr?.provinceName || null,
+        amphureId:      f.addr?.amphureId    || null,
+        amphureName:    f.addr?.amphureName  || null,
+        tambonId:       f.addr?.tambonId     || null,
+        tambonName:     f.addr?.tambonName   || null,
+        postcode:       f.addr?.postcode     || null,
+
+        // ------- Keep extra as JSON payload -------
+        payload: JSON.stringify({
+          addr: f.addr || {},
+          medical: f.medical || {},
+          // ซ้ำข้อมูลหลักไว้เล็กน้อยเพื่อ backward-compat
+          customerType: f.customerType,
+          paymentType:  f.paymentType,
+          creditDays:   Number(f.creditDays || 0),
+          creditLimit:  Number(f.creditLimit || 0),
+          companyName:  f.companyName || '',
+          taxId:        f.taxId || '',
+          branchCode:   f.branchCode || '',
+          contactPerson:f.contactPerson || '',
+          contactPhone: f.contactPhone || ''
+        })
+      };
+      // ลบ key ที่เป็น null เพื่อหลบ NOT NULL constraints
+      Object.keys(base).forEach(k => (base[k] == null) && delete base[k]);
+      return base;
+    };
+
+    return {
+      // --- state ---
+      provinces: [], amphures: [], tambons: [],
+      addr: { provinceId:"", amphureId:"", tambonId:"" },
+
+      customers: [],
+      editingIndex: null,
+      searchQuery:"", showSug:false, searchSuggestions:[],
+      filter:{ keyword:"", provinceId:"" },
+
+      form: {
+        id:null, code:"",
+        // individual
+        firstName:"", lastName:"", nationalId:"",
+        gender:"", birthday:"", age:"", phone:"", email:"",
+        // payment/credit
+        customerType:'individual',   // 'individual'|'corporate'
+        paymentType :'cash',         // 'cash'|'credit'
+        creditDays  :0,
+        creditLimit :0,
+        // corporate
+        companyName:"", taxId:"", branchCode:"",
+        contactPerson:"", contactPhone:"",
+        // address
+        addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+        // extra
+        medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+      },
+
+      // --- derived flags for UI ---
+      get isCorporate(){ return this.form.customerType === 'corporate'; },
+      get isCredit(){ return this.form.paymentType === 'credit'; },
+
+      // --- lifecycle ---
+      async init(){
+        try {
+          const pv = await api(`/api/geo/provinces`);
+          this.provinces = (pv?.data || pv || []).map(p => ({ id:p.id, name:p.nameTh || p.nameEn || String(p.id) }));
+        } catch(e) { this.provinces = []; console.error('load provinces', e); }
+
+        if (this.form?.addr?.provinceId) {
+          await this.onProvinceChange();
+          if (this.form?.addr?.amphureId) await this.onAmphureChange();
         }
-        window.toast?.('บันทึกลูกค้าสำเร็จ','info');
         await this.reload();
-        const id = (saved?.id) || (saved?.data?.id);
-        if (id){
-          const i = this.customers.findIndex(r => r.id === id);
-          if (i>=0) this.edit(i); else this.resetForm();
-        }else{
+        this._genCode();
+      },
+
+      // --- utils ---
+      _genCode(){
+        // สร้างเฉพาะตอนเป็นเรคคอร์ดใหม่ หรือ code ยังว่าง/-TMP เท่านั้น
+        if (this.form?.id) return;
+        if (this.form?.code && this.form.code !== '-TMP') return;
+
+        const pad2 = n => String(n).padStart(2, '0');
+        const now  = new Date();
+        const y    = now.getFullYear();
+        const m    = pad2(now.getMonth()+1);
+        const d    = pad2(now.getDate());
+        const ymd  = `${y}${m}${d}`;
+
+        const prefix = `CU${ymd}-`;
+        const list   = Array.isArray(this.customers) ? this.customers : [];
+        const todays = list.map(c => c?.code).filter(code => typeof code === 'string' && code.startsWith(prefix));
+
+        let next = 1;
+        if (todays.length) {
+          const lastMax = todays
+            .map(code => parseInt(code.slice(prefix.length), 10))
+            .filter(n => Number.isInteger(n))
+            .sort((a,b) => b - a)[0];
+          next = (lastMax || 0) + 1;
+        }
+        const run = String(next).padStart(4, '0');
+        this.form.code = `${prefix}${run}`;
+      },
+
+      updateAge(){
+        if(!this.form.birthday){ this.form.age=""; return; }
+        try{
+          const b = new Date(this.form.birthday);
+          const diff = (Date.now()-b.getTime())/(1000*60*60*24*365.25);
+          this.form.age = String(Math.floor(diff));
+        }catch(e){ this.form.age = ""; }
+      },
+
+      canSave(){
+        if (!this.form.code) return false;
+        if (this.isCorporate) {
+          return !!(this.form.companyName && this.form.taxId);
+        } else {
+          return !!(this.form.firstName && this.form.lastName);
+        }
+      },
+
+      _editNormalize(){
+        const f = this.form;
+        if (!f.customerType) f.customerType = 'individual';
+        if (!f.paymentType)  f.paymentType  = 'cash';
+        if (f.creditDays == null)  f.creditDays  = 0;
+        if (f.creditLimit == null) f.creditLimit = 0;
+        ['companyName','taxId','branchCode','contactPerson','contactPhone']
+          .forEach(k => { if (f[k] == null) f[k] = ''; });
+      },
+
+      // --- API calls ---
+      async reload(){
+        try{
+          const p = new URLSearchParams();
+          if (this.filter.keyword) p.set('search', this.filter.keyword);
+          p.set('limit', 100); p.set('offset', 0);
+          const res = await api(`/api/sales/customers?${p.toString()}`);
+          const list = res?.data || res || [];
+          this.customers = list.map(fromRow);
+        }catch(err){
+          window.toast?.('โหลดลูกค้าล้มเหลว','error'); console.error(err);
+        }
+      },
+
+      async suggest(q){
+        const s = (q ?? this.searchQuery ?? '').trim();
+        if(!s){ this.searchSuggestions=[]; this.showSug=false; return; }
+        try{
+          const p = new URLSearchParams({ search: s, limit: 12, offset: 0 });
+          const res = await api(`/api/sales/customers?${p.toString()}`);
+          const list = res?.data || res || [];
+          this.searchSuggestions = list.map(fromRow);
+          this.showSug = true;
+        }catch(e){ this.searchSuggestions=[]; this.showSug=false; }
+      },
+
+      // --- actions ---
+      onSearchInput(){ this.suggest(this.searchQuery); },
+      pickSuggestion(c){
+        const idx = this.customers.findIndex(x => x.id === c.id);
+        if (idx >= 0) this.edit(idx);
+        this.showSug = false;
+      },
+
+      onProvinceChange: async function(){
+        const pid = Number(this.form?.addr?.provinceId || 0) || 0;
+        this.amphures = []; this.tambons = [];
+        this.form.addr.amphureId = ""; this.form.addr.tambonId = "";
+        if (!pid) return;
+        try{
+          const ap = await api(`/api/geo/amphures?province_id=${pid}`);
+          this.amphures = (ap?.data || ap || []).map(a => ({ id:a.id, name:a.nameTh || a.nameEn || String(a.id) }));
+        }catch(e){ this.amphures = []; console.error('load amphures', e); }
+      },
+
+      onAmphureChange: async function(){
+        const aid = Number(this.form?.addr?.amphureId || 0) || 0;
+        this.tambons = []; this.form.addr.tambonId = "";
+        if (!aid) return;
+        try{
+          const tb = await api(`/api/geo/tambons?amphure_id=${aid}`);
+          this.tambons = (tb?.data || tb || []).map(t => ({ id:t.id, name:t.nameTh || t.nameEn || String(t.id), zipcode:t.zipcode||"" }));
+        }catch(e){ this.tambons = []; console.error('load tambons', e); }
+      },
+
+      applyTambonZip(){
+        const tid = Number(this.form?.addr?.tambonId || 0) || 0;
+        if (!tid) return;
+        const t = this.tambons.find(x => Number(x.id) === tid);
+        if (t?.zipcode) this.form.addr.postcode = t.zipcode;
+      },
+
+      resetForm(){
+        this.editingIndex = null;
+        this.form = {
+          id:null, code:"",
+          firstName:"", lastName:"", nationalId:"",
+          gender:"", birthday:"", age:"", phone:"", email:"",
+          customerType:'individual', paymentType:'cash', creditDays:0, creditLimit:0,
+          companyName:"", taxId:"", branchCode:"", contactPerson:"", contactPhone:"",
+          addr:{ no:"", road:"", soi:"", provinceId:"", provinceName:"", amphureId:"", amphureName:"", tambonId:"", tambonName:"", postcode:"" },
+          medical:{ diseases:[], diseaseOther:"", allergies:[], allergyOther:"" }
+        };
+        this._genCode();
+      },
+
+      async save(){
+        if(!this.canSave()){ window.toast?.('กรอกข้อมูลให้ครบก่อนบันทึก','error'); return; }
+        if (this.isCredit) {
+          const d = Number(this.form.creditDays||0);
+          const lim = Number(this.form.creditLimit||0);
+          if (d <= 0) { window.toast?.('กรุณาระบุเครดิต (วัน) > 0','error'); return; }
+          if (lim <= 0){ window.toast?.('กรุณาระบุวงเงินเครดิต > 0','error'); return; }
+        }
+        if (this.isCorporate) {
+          if (!this.form.companyName?.trim()){ window.toast?.('กรุณากรอกชื่อบริษัท','error'); return; }
+          if (!this.form.taxId?.trim()){ window.toast?.('กรุณากรอกเลขผู้เสียภาษี','error'); return; }
+        }
+
+        try{
+          const payload = toPayload(this.form);
+          let saved;
+          if (this.form.id){
+            saved = await api(`/api/sales/customers/${this.form.id}`, { method:'PUT', body: payload });
+          }else{
+            saved = await api(`/api/sales/customers`, { method:'POST', body: payload });
+          }
+          window.toast?.('บันทึกลูกค้าสำเร็จ','info');
+          await this.reload();
+          const id = (saved?.id) || (saved?.data?.id);
+          if (id){
+            const i = this.customers.findIndex(r => r.id === id);
+            if (i>=0) this.edit(i); else this.resetForm();
+          }else{
+            this.resetForm();
+          }
+        }catch(err){
+          const msg = (err?.message || '').toLowerCase();
+          if (msg.includes('duplicate customer code') || msg.includes('unique')){
+            window.toast?.('รหัสลูกค้าซ้ำ กรุณาเปลี่ยนรหัส','error');
+          }else{
+            window.toast?.('บันทึกล้มเหลว','error');
+          }
+          console.error(err);
+        }
+      },
+
+      edit(i){
+        this.editingIndex = i;
+        this.form = JSON.parse(JSON.stringify(this.customers[i]));
+        this._editNormalize();
+        if(!this.form.code) this._genCode();
+      },
+
+      async remove(i){
+        const row = this.customers[i];
+        if (!row?.id) { if(confirm('ลบรายการนี้?')) { this.customers.splice(i,1); } return; }
+        if (!confirm('คุณต้องการลบลูกค้าคนนี้ใช่หรือไม่?')) return;
+        try{
+          await api(`/api/sales/customers/${row.id}`, { method:'DELETE' });
+          window.toast?.('ลบลูกค้าแล้ว','info');
+          await this.reload();
           this.resetForm();
+        }catch(e){
+          window.toast?.('ลบไม่สำเร็จ','error'); console.error(e);
         }
-      }catch(err){
-        const msg = (err?.message || '').toLowerCase();
-        if (msg.includes('duplicate customer code') || msg.includes('unique')){
-          window.toast?.('รหัสลูกค้าซ้ำ กรุณาเปลี่ยนรหัส','error');
-        }else{
-          window.toast?.('บันทึกล้มเหลว','error');
-        }
-        console.error(err);
+      },
+
+      filteredCustomers(){
+        const kw = (this.filter.keyword||"").toLowerCase();
+        return (this.customers||[]).filter(c=>{
+          const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
+          if(!kw) return okProv;
+          const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.companyName||''} ${c.nationalId||""}`.toLowerCase();
+          return okProv && hay.includes(kw);
+        });
       }
-    },
-
-    edit(i){
-      this.editingIndex = i;
-      this.form = JSON.parse(JSON.stringify(this.customers[i]));
-      if(!this.form.code) this._genCode();
-    },
-
-    async remove(i){
-      const row = this.customers[i];
-      if (!row?.id) { if(confirm('ลบรายการนี้?')) { this.customers.splice(i,1); } return; }
-      if (!confirm('คุณต้องการลบลูกค้าคนนี้ใช่หรือไม่?')) return;
-      try{
-        await api(`/api/sales/customers/${row.id}`, { method:'DELETE' });
-        window.toast?.('ลบลูกค้าแล้ว','info');
-        await this.reload();
-        this.resetForm();
-      }catch(e){
-        window.toast?.('ลบไม่สำเร็จ','error'); console.error(e);
-      }
-    },
-
-    filteredCustomers(){
-      const kw = (this.filter.keyword||"").toLowerCase();
-      return (this.customers||[]).filter(c=>{
-        const okProv = !this.filter.provinceId || (c.addr?.provinceId===this.filter.provinceId);
-        if(!kw) return okProv;
-        const hay = `${c.code} ${c.firstName} ${c.lastName} ${c.nationalId||""}`.toLowerCase();
-        return okProv && hay.includes(kw);
-      });
-    }
+    };
   };
-};
-
   // ===== Sales » Quotation (READY) =====
   window.quotationApp = function quotationApp(){
     return {
