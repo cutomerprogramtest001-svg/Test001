@@ -1568,10 +1568,6 @@
         <label class="block text-sm font-medium">Delivery Date</label>
         <input type="date" class="mt-1 w-full border rounded px-3 py-2" x-model="form.deliveryDate" @change="recalcDue()">
       </div>
-      <div>
-        <label class="block text-sm font-medium">Due Date</label>
-        <input type="date" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.dueDate" readonly>
-      </div>
       <div class="md:col-span-2">
         <label class="block text-sm font-medium">หมายเหตุ (แสดงใน SO)</label>
         <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.noteGlobal">
@@ -1683,108 +1679,100 @@
       </div>
     </div>
 
-    <!-- Payment -->
-    <div class="space-y-3">
-      <h3 class="text-lg font-semibold">💳 การชำระเงิน</h3>
+<!-- Payment -->
+<div class="space-y-3">
+  <h3 class="text-lg font-semibold">💳 การชำระเงิน</h3>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label class="block text-sm font-medium">ประเภทการชำระ</label>
-          <select class="mt-1 w-full border rounded px-3 py-2" x-model="form.payment.method" @change="onPaymentMethodChange()">
-            <option value="FULL">เต็มจำนวน</option>
-            <option value="INST">มัดจำแบ่งรอบ</option>
-          </select>
-        </div>
-        <div x-show="form.payment.method==='INST'">
-          <label class="block text-sm font-medium">จำนวนรอบ</label>
-          <input type="number" min="2" max="12" class="mt-1 w-full border rounded px-3 py-2" x-model.number="form.payment.rounds" @change="buildInstallments()">
-        </div>
-        <div>
-          <label class="block text-sm font-medium">หมายเหตุจากแพทย์</label>
-          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.doctorNote">
-        </div>
-      </div>
-
-      <!-- Full payment controls -->
-      <div x-show="form.payment.method==='FULL'" class="flex flex-wrap items-center gap-3">
-        <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-sm"
-              :class="form.payment.full.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
-          <span class="w-2 h-2 rounded-full" :class="form.payment.full.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
-          <span x-text="form.payment.full.paid ? ('Paid ' + dateShort(form.payment.full.paidAt)) : 'Unpaid'"></span>
-        </span>
-
-        <button type="button" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                @click="receivePayment('FULL')"
-                x-show="!form.payment.full.paid">
-          ✅ รับชำระเงิน
-        </button>
-
-        <button type="button" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                @click="printReceipt('FULL')"
-                :disabled="!form.payment.full.paid">
-          🧾 พิมพ์ใบเสร็จ (PDF)
-        </button>
-
-        <div class="text-xs text-gray-500" x-show="form.payment.full.receiptNo">RC: <span x-text="form.payment.full.receiptNo"></span></div>
-      </div>
-
-      <!-- Installments table -->
-      <div x-show="form.payment.method==='INST'">
-        <div class="flex items-center justify-between">
-          <div class="text-sm text-gray-600">กรุณาให้ยอดรวมเท่ากับ <b x-text="fmt(netTotal())"></b></div>
-          <button class="px-3 py-1 rounded border hover:bg-gray-50 text-sm" @click="splitEven()">แบ่งเท่า ๆ กัน</button>
-        </div>
-        <div class="overflow-auto mt-2">
-          <table class="min-w-full text-sm border">
-            <thead class="bg-gray-100">
-              <tr>
-                <th class="px-2 py-2 border text-center w-16">รอบ</th>
-                <th class="px-2 py-2 border text-right w-36">จำนวนเงิน</th>
-                <th class="px-2 py-2 border text-left">สถานะ</th>
-                <th class="px-2 py-2 border text-center">การชำระ/พิมพ์ใบเสร็จ</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="(ins,i) in form.payment.installments" :key="i">
-                <tr>
-                  <td class="px-2 py-2 border text-center" x-text="i+1"></td>
-                  <td class="px-2 py-2 border text-right">
-                    <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right"
-                           x-model.number="ins.amount" @input="validateInstallments()">
-                  </td>
-                  <td class="px-2 py-2 border">
-                    <span class="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs"
-                          :class="ins.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
-                      <span class="w-1.5 h-1.5 rounded-full" :class="ins.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
-                      <span x-text="ins.paid ? ('Paid ' + dateShort(ins.paidAt)) : 'Unpaid'"></span>
-                    </span>
-                    <div class="text-xs text-gray-500" x-show="ins.receiptNo">RC: <span x-text="ins.receiptNo"></span></div>
-                  </td>
-                  <td class="px-2 py-2 border text-center">
-                    <template x-if="!ins.paid">
-                      <button class="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                              @click="receivePayment('INST', i)">✅ รับชำระ</button>
-                    </template>
-                    <template x-if="ins.paid">
-                      <button class="text-indigo-600 hover:underline"
-                              @click="printReceipt('INST', i)">🧾 พิมพ์ใบเสร็จ</button>
-                    </template>
-                  </td>
-                </tr>
-              </template>
-              <tr>
-                <td class="px-2 py-2 border font-medium text-right" colspan="3">รวม</td>
-                <td class="px-2 py-2 border text-right font-semibold" x-text="fmt(sumInstallments())"></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="text-sm mt-1" :class="sumInstallments()===netTotal() ? 'text-green-600' : 'text-red-600'">
-          <span x-show="sumInstallments()===netTotal()">✅ ยอดรวมตรงกับยอดสุทธิ</span>
-          <span x-show="sumInstallments()!==netTotal()">⚠️ ยอดรวมยังไม่เท่ากับยอดสุทธิ</span>
-        </p>
-      </div>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div>
+      <label class="block text-sm font-medium">ประเภทการชำระ</label>
+      <select class="mt-1 w-full border rounded px-3 py-2"
+              x-model="form.payment.method" @change="onPaymentMethodChange()">
+        <option value="FULL">เต็มจำนวน</option>
+        <option value="INST">มัดจำแบ่งรอบ</option>
+      </select>
     </div>
+    <div x-show="form.payment.method==='INST'">
+      <label class="block text-sm font-medium">จำนวนรอบ</label>
+      <input type="number" min="2" max="12"
+             class="mt-1 w-full border rounded px-3 py-2"
+             x-model.number="form.payment.rounds" @change="buildSchedule()">
+    </div>
+    <div>
+      <label class="block text-sm font-medium">หมายเหตุจากแพทย์</label>
+      <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.doctorNote">
+    </div>
+  </div>
+
+  <div class="flex items-center justify-between" x-show="form.payment.method==='INST'">
+    <div class="text-sm text-gray-600">
+      กรุณาให้ยอดรวมเท่ากับ <b x-text="fmt(netTotal())"></b>
+    </div>
+    <button class="px-3 py-1 rounded border hover:bg-gray-50 text-sm" @click="splitEven()">แบ่งเท่า ๆ กัน</button>
+  </div>
+
+  <!-- ตารางงวดชำระ (มี Due Date/Status) -->
+  <div class="overflow-auto">
+    <table class="min-w-full text-sm border">
+      <thead class="bg-gray-100">
+        <tr>
+          <th class="px-2 py-2 border text-center w-16">รอบ</th>
+          <th class="px-2 py-2 border text-right w-36">จำนวนเงิน</th>
+          <th class="px-2 py-2 border text-center w-40">กำหนดชำระ</th>
+          <th class="px-2 py-2 border text-left w-40">สถานะ</th>
+          <th class="px-2 py-2 border text-center">การชำระ/พิมพ์ใบเสร็จ</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="(ins,i) in form.payment.schedule" :key="i">
+          <tr>
+            <td class="px-2 py-2 border text-center" x-text="i+1"></td>
+            <td class="px-2 py-2 border text-right">
+              <input type="number" min="0" step="0.01"
+                     class="w-full border rounded px-2 py-1 text-right"
+                     x-model.number="ins.amount" @input="onAmountChange()">
+            </td>
+            <td class="px-2 py-2 border text-center">
+              <!-- ถ้ามี creditDays เราคำนวณให้ แต่ยังแก้มือได้ -->
+              <input type="date" class="border rounded px-2 py-1"
+                     x-model="ins.dueDate" @change="refreshStatus()">
+            </td>
+            <td class="px-2 py-2 border">
+              <span class="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs"
+                    :class="statusBadgeClass(ins)">
+                <span class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(ins)"></span>
+                <span x-text="statusText(ins)"></span>
+              </span>
+              <div class="text-xs text-gray-500" x-show="ins.receiptNo">RC: <span x-text="ins.receiptNo"></span></div>
+            </td>
+            <td class="px-2 py-2 border text-center">
+              <template x-if="!ins.paid">
+                <button class="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                        @click="receivePayment(i)">✅ รับชำระ</button>
+              </template>
+              <template x-if="ins.paid">
+                <button class="text-indigo-600 hover:underline" @click="printReceipt(i)">🧾 พิมพ์ใบเสร็จ</button>
+              </template>
+            </td>
+          </tr>
+        </template>
+        <tr>
+          <td class="px-2 py-2 border font-medium text-right" colspan="2">รวม</td>
+          <td class="px-2 py-2 border text-center">—</td>
+          <td class="px-2 py-2 border text-left">—</td>
+          <td class="px-2 py-2 border text-right font-semibold" x-text="fmt(sumSchedule())"></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="text-sm mt-1"
+     :class="sumSchedule()===netTotal() ? 'text-green-600' : 'text-red-600'">
+    <span x-show="sumSchedule()===netTotal()">✅ ยอดรวมตรงกับยอดสุทธิ</span>
+    <span x-show="sumSchedule()!==netTotal()">⚠️ ยอดรวมยังไม่เท่ากับยอดสุทธิ</span>
+  </p>
+</div>
+
 
     <!-- Records -->
     <div class="border-t pt-4">
@@ -5051,14 +5039,17 @@ window.saleOrderApp = function saleOrderApp(){
     // ===== state =====
     headerLocked: false,
     editingIndex: null,
+
     showPending: false,
     pendingRows: [],
     pendingKeyword: "",
     pendingLoading: false,
     pendingError: "",
+
     creditDays: 0,
-    _refQuotation: null, // เก็บใบเสนอราคาที่เลือก (id, qNo)
-    list: [],   // สำหรับตาราง Records ด้านล่าง
+    _refQuotation: null, // { id, qNo }
+
+    list: [],
     flt: { keyword:"", from:"", to:"", minNet:null },
 
     form: {
@@ -5066,49 +5057,47 @@ window.saleOrderApp = function saleOrderApp(){
       refQuotationNo: "",
       customer: { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" },
       symptoms: "",
-      items: [], // {service,tooth,qty,price,discount}
-      deliveryDate: "", dueDate: "",
+      items: [],
+      deliveryDate: "",
       noteGlobal: "",
       payment: {
-        method: "FULL", // FULL | INST
-        full:   { paid:false, paidAt:null, receiptNo:null },
-        rounds: 3,
-        installments: [] // [{amount, paid:false, paidAt:null, receiptNo:null}]
+        method: "FULL",     // FULL | INST
+        rounds: 1,          // ใช้กับ INST
+        schedule: []        // [{amount, dueDate, paid, paidAt, receiptNo}]
       },
       doctorNote: ""
     },
 
     // ===== lifecycle =====
-    async init(){ await this.fetchSOList(); },
+    async init(){ await this.fetchSOList(); this.buildSchedule(); },
 
     // ===== utils =====
     fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); },
     dateShort(iso){ try{ return new Date(iso).toISOString().slice(0,10);}catch{return "";} },
+    today(){ return new Date().toISOString().slice(0,10); },
+    addDays(ymd, d){
+      if (!ymd) return "";
+      const t = new Date(ymd); t.setDate(t.getDate() + Number(d||0));
+      return t.toISOString().slice(0,10);
+    },
 
     // ===== Items calc =====
-    addRow(){ this.form.items.push({service:"", tooth:"", qty:1, price:0, discount:0}); },
-    removeRow(i){ this.form.items.splice(i,1); },
-    recalcOne(i){ /* reactive only */ },
-    rowTotal(r){ const qty=Number(r.qty||0), price=Number(r.price||0), disc=Number(r.discount||0); return Math.max(0, qty*price - disc); },
-    sumBefore(){ return this.form.items.reduce((s,r)=> s + Number(r.qty||0)*Number(r.price||0), 0); },
-    sumDiscount(){ return this.form.items.reduce((s,r)=> s + Number(r.discount||0), 0); },
+    addRow(){ this.form.items.push({service:"", tooth:"", qty:1, price:0, discount:0}); this.onAmountChange(); },
+    removeRow(i){ this.form.items.splice(i,1); this.onAmountChange(); },
+    recalcOne(){ this.onAmountChange(); },
+    rowTotal(r){ const qty=+r.qty||0, price=+r.price||0, disc=+r.discount||0; return Math.max(0, qty*price - disc); },
+    sumBefore(){ return this.form.items.reduce((s,r)=> s + (+(r.qty||0)*+(r.price||0)), 0); },
+    sumDiscount(){ return this.form.items.reduce((s,r)=> s + (+(r.discount||0)), 0); },
     netTotal(){ return Math.max(0, +(this.sumBefore() - this.sumDiscount()).toFixed(2)); },
 
     // ===== Pending (Quotations) =====
-    openPending(){
-      this.showPending = true;
-      this.pendingRows = [];
-      this.pendingError = "";
-      this.pendingLoading = true;
-      this.fetchPending();
-    },
+    openPending(){ this.showPending = true; this.pendingRows = []; this.pendingError = ""; this.pendingLoading = true; this.fetchPending(); },
     async fetchPending(){
       try{
         const url = new URL(`/api/sales/quotations`, location.origin);
-        url.searchParams.set("status","Confirmed"); // << สำคัญ
+        url.searchParams.set("status","Confirmed");
         url.searchParams.set("withItems","1");
         if (this.pendingKeyword) url.searchParams.set("search", this.pendingKeyword);
-
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this.pendingRows = await res.json();
@@ -5118,12 +5107,13 @@ window.saleOrderApp = function saleOrderApp(){
         console.error('fetchPending error', e);
         this.pendingError = "โหลดรายการไม่สำเร็จ — ตรวจ API /api/sales/quotations";
         this.pendingRows = [];
-      }finally{
-        this.pendingLoading = false;
-      }
+      }finally{ this.pendingLoading = false; }
     },
     async useQuotation(q){
-      // จำ reference ไว้ (ไว้ตัดออกจาก Pending + เปลี่ยนสถานะ)
+      // ตั้ง soDate เป็นวันนี้ (เพื่อให้ Save ได้) — soNo จะถูกออกให้หลังบันทึก
+      this.form.soDate = this.today();
+
+      // จำ ref quotation
       this._refQuotation = { id: q.id, qNo: q.qNo };
 
       // map หัว
@@ -5142,14 +5132,17 @@ window.saleOrderApp = function saleOrderApp(){
         return { service: it.itemCode||"", tooth: it.itemName||"", qty, price, discount };
       });
 
+      // ล็อคหัว
       this.headerLocked = true;
+
+      // load credit และสร้างตารางงวดพร้อม Due Date
       await this.loadCredit(this.form.customer.code);
-      this.recalcDue();
+      this.buildSchedule();
 
       this.showPending = false;
     },
 
-    // ===== Credit & Due =====
+    // ===== Credit & Schedule =====
     async loadCredit(code){
       this.creditDays = 0;
       if (!code) return;
@@ -5157,73 +5150,92 @@ window.saleOrderApp = function saleOrderApp(){
       const j = await res.json();
       if (!j.error) this.creditDays = Number(j.creditDays||0);
     },
-    recalcDue(){
-      if (!this.form.deliveryDate) { this.form.dueDate = ""; return; }
-      const d = new Date(this.form.deliveryDate);
-      const k = Number(this.creditDays||0);
-      if (k>0) d.setDate(d.getDate()+k);
-      this.form.dueDate = d.toISOString().slice(0,10);
-    },
+    onDeliveryChange(){ this.buildSchedule(); },
 
-    // ===== Payment (FULL / INST) =====
     onPaymentMethodChange(){
       if (this.form.payment.method === "FULL") {
-        this.form.payment.installments = [];
+        this.form.payment.rounds = 1;
       } else {
-        this.buildInstallments();
+        this.form.payment.rounds = Math.max(2, Number(this.form.payment.rounds||2));
       }
+      this.buildSchedule();
     },
-    buildInstallments(){
-      const rounds = Math.max(2, Number(this.form.payment.rounds||2));
-      this.form.payment.rounds = rounds;
-      const net = this.netTotal();
-      this.form.payment.installments = Array.from({length:rounds},()=>({amount:0, paid:false, paidAt:null, receiptNo:null}));
-      const base = Math.floor((net/rounds)*100)/100;
-      const last = +(net - base*(rounds-1)).toFixed(2);
-      for(let i=0;i<rounds-1;i++) this.form.payment.installments[i].amount = base;
-      this.form.payment.installments[rounds-1].amount = last;
-    },
-    splitEven(){ this.buildInstallments(); },
-    sumInstallments(){ return +(this.form.payment.installments||[]).reduce((s,x)=>s+Number(x.amount||0),0).toFixed(2); },
-    validateInstallments(){ /* แสดงสถานะรวมเทียบ net */ },
 
-    receivePayment(mode, idx=null){
+    buildSchedule(){
+      const net = this.netTotal();
+      const rounds = (this.form.payment.method === "FULL") ? 1 : Math.max(2, Number(this.form.payment.rounds||2));
+      const k = Number(this.creditDays||0);
+      const d0 = this.form.deliveryDate || this.today();
+
+      // สร้างตารางงวดว่าง
+      this.form.payment.schedule = Array.from({length:rounds},()=>({amount:0, dueDate:"", paid:false, paidAt:null, receiptNo:null}));
+
+      // แบ่งยอด
+      if (rounds === 1) {
+        this.form.payment.schedule[0].amount = +net.toFixed(2);
+      } else {
+        const base = Math.floor((net/rounds)*100)/100;
+        const last = +(net - base*(rounds-1)).toFixed(2);
+        for (let i=0;i<rounds-1;i++) this.form.payment.schedule[i].amount = base;
+        this.form.payment.schedule[rounds-1].amount = last;
+      }
+
+      // คำนวณ Due Date ตามเครดิต (หากมี)
+      for (let i=0;i<rounds;i++){
+        this.form.payment.schedule[i].dueDate = k>0 ? this.addDays(d0, k*(i+1)) : "";
+      }
+      this.refreshStatus();
+    },
+
+    splitEven(){ this.buildSchedule(); },
+    sumSchedule(){ return +(this.form.payment.schedule||[]).reduce((s,x)=>s+Number(x.amount||0),0).toFixed(2); },
+    onAmountChange(){ // หากแก้จำนวน/รายการ ให้ rebuild หากเป็นแบ่งรอบเดิม
+      if (this.form.payment.method==='INST') this.buildSchedule();
+    },
+
+    // ===== Status (Paid/Unpaid/Overdue) =====
+    isOverdue(ins){
+      if (ins.paid) return false;
+      if (!ins.dueDate) return false;
+      const today = this.today();
+      return today > ins.dueDate; // เปรียบเทียบ YYYY-MM-DD
+    },
+    statusText(ins){ return ins.paid ? `Paid ${this.dateShort(ins.paidAt)}` : (this.isOverdue(ins) ? 'Overdue' : 'Unpaid'); },
+    statusBadgeClass(ins){
+      return ins.paid ? 'bg-emerald-100 text-emerald-700'
+        : (this.isOverdue(ins) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600');
+    },
+    statusDotClass(ins){
+      return ins.paid ? 'bg-emerald-600'
+        : (this.isOverdue(ins) ? 'bg-red-600' : 'bg-gray-400');
+    },
+    refreshStatus(){ this.form.payment.schedule = this.form.payment.schedule.map(x => ({...x})); },
+
+    // ===== รับชำระ & พิมพ์ใบเสร็จ =====
+    receivePayment(i){
+      const ins = this.form.payment.schedule[i]; if (!ins) return;
       const now = new Date().toISOString();
       const rc  = 'RC' + now.replace(/[-:TZ.]/g,'').slice(0,14);
-      if (mode === 'FULL') {
-        this.form.payment.full.paid = true;
-        this.form.payment.full.paidAt = now;
-        this.form.payment.full.receiptNo = rc;
-      } else {
-        const ins = this.form.payment.installments[idx];
-        if (!ins) return;
-        ins.paid = true; ins.paidAt = now; ins.receiptNo = rc;
-      }
+      ins.paid = true; ins.paidAt = now; ins.receiptNo = rc;
+      this.refreshStatus();
     },
-    printReceipt(mode, idx=null){
-      alert('ตัวอย่าง: ออกใบเสร็จฝั่ง Front — เชื่อมระบบพิมพ์ PDF ภายหลังได้');
-    },
+    printReceipt(i){ alert('ตัวอย่างพิมพ์ใบเสร็จ (front-end)'); },
 
     // ===== Save =====
     canSave(){
-      return this.form.customer.code && this.form.items.length>0 && this.netTotal()>0;
+      // ให้ save ได้เมื่อมีลูกค้า + รายการ + ยอดสุทธิ > 0
+      // ตารางชำระรวมไม่จำเป็นต้องเป๊ะ (เตือนด้วยข้อความสีแล้ว)
+      return !!this.form.customer.code && this.form.items.length>0 && this.netTotal()>0;
     },
     async save(){
       const totalBeforeDiscount = this.sumBefore();
       const discount = this.sumDiscount();
       const grandTotal = this.netTotal();
 
-      // map payment → API
-      let paymentType = "FULL";
-      let depositAmount = 0, depositPercent = null, installmentCount = null, paymentPlan = null;
-      if (this.form.payment.method === "INST") {
-        paymentType = "DEPOSIT";
-        depositAmount = Number(this.form.payment.installments?.[0]?.amount || 0);
-        installmentCount = this.form.payment.installments?.length || 0;
-        paymentPlan = this.form.payment;
-      }
+      // header dueDate เพื่อความเข้ากัน API: ใช้ due งวดสุดท้าย (หรือว่าง)
+      const lastDue = (this.form.payment.schedule.slice(-1)[0]?.dueDate) || "";
 
-      // map items → API
+      // payload items
       const items = this.form.items.map(r => ({
         itemCode: r.service || "",
         itemName: r.tooth || "",
@@ -5234,8 +5246,9 @@ window.saleOrderApp = function saleOrderApp(){
         remark: ""
       }));
 
+      // map payment → API (เก็บตาราง schedule ทั้งชุด)
       const payload = {
-        soDate: this.form.soDate,
+        soDate: this.form.soDate || this.today(),
         status: "Open",
         customerCode: this.form.customer.code,
         billTo: "",
@@ -5245,13 +5258,13 @@ window.saleOrderApp = function saleOrderApp(){
         discount,
         grandTotal,
         note: [this.form.noteGlobal, this.form.symptoms, this.form.doctorNote].filter(Boolean).join(" | "),
-        deliveryDate: this.form.deliveryDate,
-        dueDate: this.form.dueDate,
-        paymentType,
-        depositAmount,
-        depositPercent,
-        installmentCount,
-        paymentPlan,
+        deliveryDate: this.form.deliveryDate || this.today(),
+        dueDate: lastDue,                               // header (เพื่อเข้ากับ backend เดิม)
+        paymentType: (this.form.payment.method==='FULL' ? 'FULL' : 'DEPOSIT'),
+        depositAmount: (this.form.payment.method==='FULL' ? 0 : Number(this.form.payment.schedule?.[0]?.amount||0)),
+        depositPercent: null,
+        installmentCount: this.form.payment.schedule.length,
+        paymentPlan: { method: this.form.payment.method, schedule: this.form.payment.schedule },
         items,
         refQuotationNo: this.form.refQuotationNo || null
       };
@@ -5264,8 +5277,9 @@ window.saleOrderApp = function saleOrderApp(){
       const j = await res.json();
       if (j.error) { alert(j.error); return; }
 
-      this.form.soNo = j.soNo || this.form.soNo;
-      if (!this.form.dueDate && j.dueDate) this.form.dueDate = j.dueDate;
+      // แสดงเลข SO ที่ backend gen ให้
+      this.form.soNo = j.soNo || this.form.soNo || '(New)';
+      this.form.soDate = this.form.soDate || this.today();
 
       // เพิ่มเข้า list ให้เห็นทันที
       this.list.unshift({
@@ -5273,60 +5287,40 @@ window.saleOrderApp = function saleOrderApp(){
         soDate: this.form.soDate,
         customer: { ...this.form.customer },
         net: grandTotal,
-        payment: this.form.payment,
+        payment: { method:this.form.payment.method, schedule: this.form.payment.schedule },
         refQuotationNo: this.form.refQuotationNo || ""
       });
 
-      // ❶ เปลี่ยนสถานะ Quotation ให้หลุดจาก Pending
+      // ทำให้ Quotation หลุดจาก Pending
       try {
         if (this._refQuotation?.id != null) {
           await fetch(`/api/sales/quotations/${this._refQuotation.id}`, {
             method: "PATCH",
             headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ confirmed: false }) // Router จะ map เป็น status "Draft"
+            body: JSON.stringify({ confirmed: false })
           });
+          // ตัดออกจาก modal ที่แคชไว้
+          this.pendingRows = (this.pendingRows || []).filter(x => x.qNo !== this._refQuotation.qNo);
         }
       } catch(e) { console.warn("soft-close quotation failed:", e); }
-
-      // ❷ ตัดออกจาก pendingRows ในหน้าให้เลย
-      if (this._refQuotation?.qNo) {
-        this.pendingRows = (this.pendingRows || []).filter(x => x.qNo !== this._refQuotation.qNo);
-      }
       this._refQuotation = null;
 
-      alert(`Saved SO: ${this.form.soNo || j.soNo}`);
+      alert(`Saved SO: ${this.form.soNo}`);
       // this.resetForm();
     },
 
-    resetForm(){
-      this.headerLocked = false;
-      this.editingIndex = null;
-      this.creditDays = 0;
-      this._refQuotation = null;
-      this.form = {
-        soNo:"", soDate: new Date().toISOString().slice(0,10), status:"Open",
-        refQuotationNo:"", customer:{code:"",firstName:"",lastName:"",nationalId:"",age:null,phone:"",email:""},
-        symptoms:"", items:[],
-        deliveryDate:"", dueDate:"", noteGlobal:"",
-        payment:{ method:"FULL", full:{paid:false,paidAt:null,receiptNo:null}, rounds:3, installments:[] },
-        doctorNote:""
-      };
-    },
-
-    // ===== Records (read-only list) =====
+    // ===== Records =====
     async fetchSOList(){
       const u = new URL(`/api/sales/orders`, location.origin);
       u.searchParams.set("page","1"); u.searchParams.set("size","50");
       const res = await fetch(u);
       const rows = await res.json();
-
-      // map ให้เข้ากับ UI (หัวเอกสาร SO)
       this.list = (rows||[]).map(h => ({
         soNo: h.soNo,
         soDate: h.soDate,
         customer: { firstName: h.customerFirstName||"", lastName: h.customerLastName||"", nationalId: h.customerNationalId||"" },
         net: Number(h.grandTotal||0),
-        payment: { method: (h.paymentType==='DEPOSIT'?'INST':'FULL'), full:{paid:false}, installments:[] },
+        payment: { method: (h.paymentType==='DEPOSIT'?'INST':'FULL'), schedule: [] },
         refQuotationNo: h.refQuotationNo || ""
       }));
     },
@@ -5346,16 +5340,26 @@ window.saleOrderApp = function saleOrderApp(){
       if (this.flt.minNet!=null && this.flt.minNet!=="") a = a.filter(r => Number(r.net||0) >= Number(this.flt.minNet));
       return a;
     },
-    editByNo(no){
-      const r = this.list.find(x=>x.soNo===no);
-      if (!r) return alert("ไม่พบเอกสารในแคชหน้านี้ (ลองโหลดใหม่)");
-      alert("โหมด View/Edit ตัวอย่าง — ถ้าต้องการโหลดรายละเอียดจากฐานจริง เพิ่ม GET by soNo ที่ API แล้ว map กลับฟอร์มได้เลย");
-    },
+    resetForm(){
+      this.headerLocked = false;
+      this.editingIndex = null;
+      this.creditDays = 0;
+      this._refQuotation = null;
+      this.form = {
+        soNo:"", soDate: this.today(), status:"Open",
+        refQuotationNo:"",
+        customer:{code:"",firstName:"",lastName:"",nationalId:"",age:null,phone:"",email:""},
+        symptoms:"",
+        items:[],
+        deliveryDate:"",
+        noteGlobal:"",
+        payment:{ method:"FULL", rounds:1, schedule:[] },
+        doctorNote:""
+      };
+      this.buildSchedule();
+    }
   };
 }
-
-
-
 
 </script>
 </body>
