@@ -84,7 +84,7 @@ export const onRequest = async (ctx) => {
   const method = request.method.toUpperCase();
   const db = env.DB;                      // D1 binding
   const path = url.pathname.replace(/^\/api\/?/, '').trim();
-
+  
   // ===== CORS / helpers =====
   const origin = request.headers.get("Origin") || "*";
   const baseHeaders = {
@@ -105,6 +105,12 @@ export const onRequest = async (ctx) => {
   {
     const r = await __handleGeo({ request, baseHeaders }, path, db);
     if (r) return r; // จบที่นี่ถ้าเป็น /api/geo/*
+  }
+  // ===== Mount routers เฉพาะที่ต้องการจริง ๆ =====
+  // (เราใช้ Sales: Quotations block เดิมอยู่แล้ว จึงไม่ต้อง quotationsRouter ซ้ำ)
+  {
+    const r = await saleOrdersRouter({ request, url, path, db, send, err });
+    if (r) return r;
   }
 
   // ===== Common helpers ที่ส่วนอื่นต้องใช้ =====
@@ -396,6 +402,21 @@ export const onRequest = async (ctx) => {
   // ===== Sales: Customers =====
   if (seg[0] === "sales" && seg[1] === "customers") {
     const table="sales_customers", pk=await getPK(table);
+        // GET /api/sales/customers/:code/credit
+    if (method==="GET" && idFromPath && seg[3]==="credit") {
+      const code = decodeURIComponent(idFromPath);
+      const row = await db.prepare(`
+        SELECT code, creditDays, creditLimit, paymentType
+        FROM sales_customers
+        WHERE code=? LIMIT 1
+      `).bind(code).first();
+      return send({
+        code,
+        creditDays : Number(row?.creditDays ?? 0),
+        creditLimit: Number(row?.creditLimit ?? 0),
+        paymentType: row?.paymentType || 'cash'
+      });
+    }
     if (method==="GET" && !idFromPath) {
       const search=q("search"); let sql=`SELECT * FROM ${table}`, bind=[];
       if (search) { sql+=` WHERE (LOWER(code) LIKE ? OR LOWER(firstName) LIKE ? OR LOWER(lastName) LIKE ? OR nationalId LIKE ?)`; bind=[...Array(3).fill(`%${search.toLowerCase()}%`), `%${search}%`]; }
@@ -438,8 +459,34 @@ export const onRequest = async (ctx) => {
     }
 
     if (method === "GET" && !idFromPath) {
-      const rs = await db.prepare(`SELECT * FROM ${T_HEAD} ORDER BY ${headPK} DESC`).all();
-      return send(rs.results || []);
+      const status    = (q("status") || "").trim();          // e.g. "Confirm"
+      const withItems = q("withItems") === "1";
+
+      let sql = `SELECT * FROM ${T_HEAD}`;
+      let bind = [];
+      if (status) {
+        // รองรับทั้ง Confirm / Confirmed
+        sql += ` WHERE LOWER(status) IN (?, ?)`;
+        bind = [status.toLowerCase(), (status.toLowerCase()==="confirm"?"confirmed":"confirm")];
+      }
+      sql += ` ORDER BY ${headPK} DESC`;
+
+      const heads = (await db.prepare(sql).bind(...bind).all()).results || [];
+      if (!withItems || !heads.length) return send(heads);
+
+      const qnos = heads.map(h => h.qNo).filter(Boolean);
+      let items = [];
+      if (qnos.length) {
+        const qs = qnos.map(()=>'?').join(',');
+        items = (await db.prepare(
+          `SELECT qNo, itemCode, itemName, qty, unitPrice, lineTotal
+             FROM ${T_ITEMS} WHERE qNo IN (${qs}) ORDER BY id ASC`
+        ).bind(...qnos).all()).results || [];
+      }
+      const byQ = {};
+      for (const it of items) (byQ[it.qNo] ||= []).push(it);
+      for (const h of heads) h.items = byQ[h.qNo] || [];
+      return send(heads);
     }
 
     if (method === "GET" && idFromPath) {
@@ -558,68 +605,169 @@ export const onRequest = async (ctx) => {
     return err("method not allowed", 405);
   }
 
-  // ===== Sales: Orders =====
-  if (seg[0]==="sales" && seg[1]==="orders") {
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS sales_orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        docNo TEXT, date TEXT,
-        customerId TEXT, customerName TEXT,
-        status TEXT, total REAL, note TEXT, refNo TEXT,
-        payload TEXT,
-        CreateDate TEXT DEFAULT (datetime('now')),
-        CreateBy   TEXT,
-        UpdateDate TEXT DEFAULT (datetime('now')),
-        UpdateBy   TEXT
-      );
-    `);
-    const table="sales_orders", pk=await getPK(table);
+  // =============== QUOTATIONS ROUTER (pending for Sale Order) ===============
+async function quotationsRouter({ request, url, path, db, send, err }) {
+  if (!path.startsWith("sales/quotations")) return null;
 
-    if (method==="GET" && !idFromPath) {
-      const search=q("search"), from=q("from"), to=q("to"),
-            limit=Math.min(+q("limit","50")||50,1000), offset=Math.max(+q("offset","0")||0,0);
-      const bind=[]; let sql=`SELECT * FROM ${table}`; const wh=[];
-      if (search) { wh.push(`(LOWER(docNo) LIKE ? OR LOWER(customerName) LIKE ? OR customerId LIKE ?)`); bind.push(`%${search.toLowerCase()}%`,`%${search.toLowerCase()}%`, `%${search}%`); }
-      if (from)   { wh.push(`date>=?`); bind.push(from); }
-      if (to)     { wh.push(`date<=?`); bind.push(to); }
-      if (wh.length) sql+=` WHERE `+wh.join(" AND ");
-      const total=(await db.prepare(`SELECT COUNT(*) c FROM (${sql})`).bind(...bind).first())?.c||0;
-      sql+=` ORDER BY date DESC, ${pk} DESC LIMIT ${limit} OFFSET ${offset}`;
-      const rs=await db.prepare(sql).bind(...bind).all();
-      return send({ data: rs.results||[], total });
+  // GET /api/sales/quotations?status=Confirm&withItems=1
+  if (path === "sales/quotations" && request.method === "GET") {
+    const status = (url.searchParams.get("status") || "").trim();
+    const withItems = (url.searchParams.get("withItems") || "0") === "1";
+
+    let rows = [];
+    if (status) {
+      rows = (await db.prepare(
+        `SELECT * FROM sales_quotations WHERE status=? ORDER BY id DESC`
+      ).bind(status).all()).results || [];
+    } else {
+      rows = (await db.prepare(
+        `SELECT * FROM sales_quotations ORDER BY id DESC`
+      ).all()).results || [];
     }
-    if (method==="POST") {
-      const b = await readBody();
-      const payload = await addAuditOnCreate(table, {
-        docNo: b.docNo||null, date: b.date||null,
-        customerId: b.customerId||null, customerName: b.customerName||null,
-        status: b.status||"Open", total: Number(b.total||0),
-        note: b.note||"", refNo: b.refNo||"",
-        payload: typeof b.payload==="string" ? b.payload : JSON.stringify(b.payload ?? {})
-      });
-      const {sql,bind}=buildInsert(table,payload);
-      const row=await db.prepare(sql).bind(...bind).first();
-      return send(row);
+
+    if (!withItems) return send(rows);
+
+    // ดึง items ทั้งหมดในครั้งเดียว แล้ว group
+    const ids = rows.map(r => r.qNo).filter(Boolean);
+    let items = [];
+    if (ids.length) {
+      const qs = ids.map(()=>"?").join(",");
+      items = (await db.prepare(
+        `SELECT * FROM sales_quotationitems WHERE qNo IN (${qs})`
+      ).bind(...ids).all()).results || [];
     }
-    if ((method==="PUT"||method==="PATCH") && idFromPath) {
-      const b = await readBody();
-      const payload = await addAuditOnUpdate(table, {
-        docNo: b.docNo||null, date: b.date||null,
-        customerId: b.customerId||null, customerName: b.customerName||null,
-        status: b.status||"Open", total: Number(b.total||0),
-        note: b.note||"", refNo: b.refNo||"",
-        payload: typeof b.payload==="string" ? b.payload : JSON.stringify(b.payload ?? {})
-      });
-      const {sql,bind}=buildUpdate(table,payload,pk);
-      const row=await db.prepare(sql).bind(...bind, idFromPath).first();
-      return row?send(row):err("not found",404);
+    const byQ = {};
+    for (const it of items) {
+      (byQ[it.qNo] ||= []).push(it);
     }
-    if (method==="DELETE" && idFromPath) {
-      const row=await db.prepare(`DELETE FROM ${table} WHERE ${pk}=? RETURNING *`).bind(idFromPath).first();
-      return row?send(row):err("not found",404);
-    }
-    return err("method not allowed",405);
+    for (const q of rows) q.items = byQ[q.qNo] || [];
+    return send(rows);
   }
+
+  return null;
+}
+// ===================== SALE ORDERS ROUTER =====================
+async function saleOrdersRouter({ request, url, path, db, send, err }) {
+  if (!path.startsWith("sales/orders")) return null;
+
+  // GET /api/sales/orders?search=&page=&size=
+  if (path === "sales/orders" && request.method === "GET") {
+    const q = (url.searchParams.get("search") || "").trim();
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
+    const size = Math.min(parseInt(url.searchParams.get("size") || "20", 10), 100);
+    const off  = (page - 1) * size;
+
+    let base = `SELECT * FROM sales_saleorders`;
+    let where = "";
+    let bind = [];
+    if (q) {
+      where = ` WHERE soNo LIKE ? OR customerCode LIKE ? `;
+      bind = [`%${q}%`, `%${q}%`];
+    }
+    const rows = await db.prepare(`${base}${where} ORDER BY id DESC LIMIT ? OFFSET ?`)
+                         .bind(...bind, size, off).all();
+    return send(rows.results || []);
+  }
+
+  // POST /api/sales/orders (สร้างจาก Quotation ที่ confirm)
+  if (path === "sales/orders" && request.method === "POST") {
+    const b = await (async()=>{ try{return await request.json();}catch{return{};} })();
+
+    // 1) gen soNo (YYYYMMDD + running 4 หลัก)
+    const ymd = new Date().toISOString().slice(0,10).replace(/-/g,'');
+    const last = await db.prepare(
+      `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
+    ).bind(`SO${ymd}-%`).first();
+    let run = 1;
+    if (last?.soNo) {
+      const m = last.soNo.match(/-(\d{4})$/);
+      if (m) run = parseInt(m[1],10)+1;
+    }
+    const soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
+
+    // 2) หา creditDays ของลูกค้า
+    let creditDays = 0;
+    if (b.customerCode) {
+      const c = await db.prepare(
+        `SELECT creditDays FROM sales_customers WHERE code=? LIMIT 1`
+      ).bind(b.customerCode).first();
+      creditDays = Number(c?.creditDays || 0);
+    }
+
+    // 3) คำนวณ dueDate = deliveryDate + creditDays
+    const deliveryDate = (b.deliveryDate || "").trim();
+    const dueDate = (()=>{
+      if (!deliveryDate) return "";
+      // เพิ่มวันแบบ SQLite (ใช้ฝั่ง DB ให้แม่น timezone)
+      // ถ้าอยากคงที่ ทำฝั่งแอปก็ได้ แต่ที่นี่เราบันทึกเป็นค่าวันที่ string ตรง ๆ
+      const dt = new Date(deliveryDate);
+      if (Number.isFinite(creditDays) && creditDays>0) {
+        dt.setDate(dt.getDate() + creditDays);
+      }
+      return dt.toISOString().slice(0,10);
+    })();
+
+    // 4) payment/balance
+    const paymentType = (b.paymentType || "FULL").toUpperCase();  // FULL | DEPOSIT
+    const grandTotal  = Number(b.grandTotal || 0);
+    let depositAmount = Number(b.depositAmount || 0);
+    const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
+    const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : null;
+
+    if (paymentType === "DEPOSIT") {
+      if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
+        depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
+      }
+    } else {
+      depositAmount = 0;
+    }
+    const totalPaid = (paymentType === "FULL") ? grandTotal : depositAmount;
+    const balance   = Math.max(0, +(grandTotal - totalPaid).toFixed(2));
+
+    // 5) เข้าตารางหัว SO
+    await db.prepare(`
+      INSERT INTO sales_saleorders
+        (soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
+         totalBeforeDiscount, discount, grandTotal, note,
+         deliveryDate, dueDate, paymentType, depositAmount, depositPercent, installmentCount, totalPaid, balance, paymentPlan, CreateDate)
+      VALUES
+        (?,?,?,?,?,?,?,
+         ?,?,?,?,
+         ?,?,?,?,?,?,?,?, ?, datetime('now','localtime'))
+    `).bind(
+      soNo, (b.soDate||new Date().toISOString().slice(0,10)), (b.status||"Open"),
+      (b.customerCode||""), (b.billTo||""), (b.shipTo||""), (b.paymentTerm||""),
+      Number(b.totalBeforeDiscount||0), Number(b.discount||0), grandTotal, (b.note||""),
+      deliveryDate, dueDate, paymentType, depositAmount, (depositPercent||null), (installmentCount||null),
+      totalPaid, balance, (b.paymentPlan ? JSON.stringify(b.paymentPlan) : null)
+    ).run();
+
+    // 6) หา id ล่าสุดเพื่อผูก items
+    const head = await db.prepare(`SELECT id FROM sales_saleorders WHERE soNo=? LIMIT 1`).bind(soNo).first();
+    const soId = head?.id;
+
+    // 7) บันทึกรายการสินค้า
+    if (Array.isArray(b.items)) {
+      const stmt = await db.prepare(`
+        INSERT INTO sales_saleorderitems
+          (soNo, itemCode, itemName, qty, uom, unitPrice, lineTotal, remark, CreateDate)
+        VALUES (?,?,?,?,?,?,?, ?, datetime('now','localtime'))
+      `);
+      for (const it of b.items) {
+        const qty  = Number(it.qty||0);
+        const price= Number(it.unitPrice||0);
+        const line = Number(it.lineTotal ?? (qty*price));
+        await stmt.bind(
+          soNo, (it.itemCode||""), (it.itemName||""), qty, (it.uom||""), price, line, (it.remark||"")
+        ).run();
+      }
+    }
+
+    return send({ ok:true, soNo, soId, dueDate, balance });
+  }
+
+  return null;
+}
 
   // ----- fallback -----
   return err(`No route for: ${seg.join("/")}`, 404);
