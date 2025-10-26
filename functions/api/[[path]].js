@@ -1,79 +1,3 @@
-/* ===== GEO (Single-table) – helpers only, ไม่แตะ router อื่น ===== */
-const __geoJson = (data, status=200, headers={}) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers }
-  });
-
-async function __geoEnsureSingle(db) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS geo_flat (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      province TEXT NOT NULL,
-      district TEXT NOT NULL,
-      subdistrict TEXT NOT NULL,
-      zipcode TEXT,
-      latitude REAL,
-      longitude REAL
-    );
-    CREATE INDEX IF NOT EXISTS idx_geo_flat_p   ON geo_flat(province);
-    CREATE INDEX IF NOT EXISTS idx_geo_flat_d   ON geo_flat(district);
-    CREATE INDEX IF NOT EXISTS idx_geo_flat_s   ON geo_flat(subdistrict);
-    CREATE INDEX IF NOT EXISTS idx_geo_flat_zip ON geo_flat(zipcode);
-  `);
-}
-
-// NOTE: ไม่ seed อะไรเพิ่ม เพราะคุณ import ข้อมูลเข้า D1 แล้ว
-async function __handleGeo(ctx, path, db){
-  if (!path.startsWith('geo/')) return null; // ไม่ใช่ /api/geo/* -> ปล่อย router เดิม
-
-  const cors = ctx.baseHeaders || { "content-type": "application/json; charset=utf-8" };
-  await __geoEnsureSingle(db);
-
-  // /api/geo/provinces  -> [{name}]
-  if (path === 'geo/provinces') {
-    const rs = await db.prepare(
-      `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province`
-    ).all();
-    return __geoJson((rs.results || rs || []).map(r => ({ id: r.name, name: r.name })), 200, cors);
-  }
-
-  // /api/geo/amphures?province_id=กรุงเทพมหานคร  -> [{id,name,province}]
-  if (path.startsWith('geo/amphures')) {
-    const url = new URL(ctx.request.url);
-    const pid = url.searchParams.get('province_id'); // ใช้ชื่อจังหวัดเป็น id
-    if (!pid) return __geoJson({ error:'province_id required' }, 400, cors);
-    const rs = await db.prepare(
-      `SELECT DISTINCT district AS name FROM geo_flat WHERE province=? ORDER BY district`
-    ).bind(pid).all();
-    return __geoJson((rs.results || rs || []).map(r => ({
-      id: r.name, name: r.name, province_id: pid
-    })), 200, cors);
-  }
-
-  // /api/geo/tambons?amphure_id=เขตห้วยขวาง&province_id=กรุงเทพมหานคร -> [{id,name,zipcode}]
-  if (path.startsWith('geo/tambons')) {
-    const url = new URL(ctx.request.url);
-    const aid = url.searchParams.get('amphure_id');  // ใช้ชื่ออำเภอ/เขตเป็น id
-    const pid = url.searchParams.get('province_id'); // บังคับส่ง province ด้วย เพื่อกันชื่อซ้ำข้ามจังหวัด
-    if (!aid || !pid) return __geoJson({ error:'amphure_id & province_id required' }, 400, cors);
-    const rs = await db.prepare(
-      `SELECT subdistrict AS name, zipcode
-         FROM geo_flat
-        WHERE province=? AND district=?
-        GROUP BY subdistrict, zipcode
-        ORDER BY subdistrict`
-    ).bind(pid, aid).all();
-    return __geoJson((rs.results || rs || []).map(r => ({
-      id: r.name, name: r.name, zipcode: r.zipcode || ''
-    })), 200, cors);
-  }
-
-  return __geoJson({ error:'Not Found' }, 404, cors);
-}
-/* ===== /GEO helpers ===== */
-
-
 export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
@@ -102,6 +26,102 @@ export const onRequest = async (ctx) => {
     const r = await __handleGeo({ request, baseHeaders }, path, db);
     if (r) return r; // เจอ /api/geo/* จะจบที่นี่เลย
   }
+
+  // ===== GEO (single-table: geo_flat) =====
+if (seg[0] === "geo") {
+  // ใช้ตารางเดียว geo_flat
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS geo_flat (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      province    TEXT NOT NULL,
+      district    TEXT NOT NULL,
+      subdistrict TEXT NOT NULL,
+      zipcode     TEXT,
+      latitude    REAL,
+      longitude   REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_p   ON geo_flat(province);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_d   ON geo_flat(district);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_s   ON geo_flat(subdistrict);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_zip ON geo_flat(zipcode);
+  `);
+
+  // GET /api/geo/provinces -> [{id,name_th,name_en}]
+  if (seg[1] === "provinces" && method === "GET") {
+    const rs = await db.prepare(
+      `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province`
+    ).all();
+    const data = (rs.results || []).map((r, i) => ({
+      id: i + 1,          // สร้างเลขวิ่ง เพื่อให้ dropdown เดิมยัง x-model ด้วยตัวเลขได้
+      name_th: r.name,
+      name_en: r.name
+    }));
+    return send(data);
+  }
+
+  // GET /api/geo/amphures?province_id=<ชื่อจังหวัดหรือเลข index>
+  if (seg[1] === "amphures" && method === "GET") {
+    const pid = q("province_id");
+    if (!pid) return err("province_id required", 400);
+
+    // รองรับทั้ง 'กรุงเทพมหานคร' (ชื่อ) หรือ '1' (เลข index จาก dropdown)
+    let provinceName = pid;
+    if (/^\d+$/.test(pid)) {
+      const prov = await db.prepare(
+        `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province LIMIT 1 OFFSET ?`
+      ).bind(Math.max(parseInt(pid,10)-1,0)).first();
+      provinceName = prov?.name || "";
+    }
+
+    const rs = await db.prepare(
+      `SELECT DISTINCT district AS name
+         FROM geo_flat
+        WHERE province=?
+        ORDER BY district`
+    ).bind(provinceName).all();
+
+    const data = (rs.results || []).map((r, i) => ({
+      id: i + 1,
+      name_th: r.name,
+      name_en: r.name
+    }));
+    return send(data);
+  }
+
+  // GET /api/geo/tambons?amphure_id=<ชื่อเขต/อำเภอ>&province_id=<ชื่อหรือเลข>
+  if (seg[1] === "tambons" && method === "GET") {
+    const aid = q("amphure_id");
+    const pid = q("province_id");
+    if (!aid || !pid) return err("amphure_id & province_id required", 400);
+
+    let provinceName = pid;
+    if (/^\d+$/.test(pid)) {
+      const prov = await db.prepare(
+        `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province LIMIT 1 OFFSET ?`
+      ).bind(Math.max(parseInt(pid,10)-1,0)).first();
+      provinceName = prov?.name || "";
+    }
+
+    const rs = await db.prepare(
+      `SELECT subdistrict AS name, zipcode
+         FROM geo_flat
+        WHERE province=? AND district=?
+        GROUP BY subdistrict, zipcode
+        ORDER BY subdistrict`
+    ).bind(provinceName, aid).all();
+
+    const data = (rs.results || []).map((r, i) => ({
+      id: i + 1,
+      name_th: r.name,
+      name_en: r.name,
+      zipcode: r.zipcode || ""
+    }));
+    return send(data);
+  }
+
+  return err("geo not found", 404);
+}
+// ===== /GEO (geo_flat) =====
 
 
   // ===== HR: Employees =====
