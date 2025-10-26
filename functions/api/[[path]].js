@@ -7,97 +7,72 @@ const __geoJson = (data, status=200, headers={}) =>
 
 async function __geoEnsureSingle(db) {
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS geo_admin (
-      id        INTEGER PRIMARY KEY,
-      parent_id INTEGER,
-      level     TEXT NOT NULL CHECK(level IN ('province','amphure','tambon')),
-      name      TEXT NOT NULL,
-      zipcode   TEXT
+    CREATE TABLE IF NOT EXISTS geo_flat (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      province TEXT NOT NULL,
+      district TEXT NOT NULL,
+      subdistrict TEXT NOT NULL,
+      zipcode TEXT,
+      latitude REAL,
+      longitude REAL
     );
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_level  ON geo_admin(level);
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_parent ON geo_admin(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_zip    ON geo_admin(zipcode);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_p   ON geo_flat(province);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_d   ON geo_flat(district);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_s   ON geo_flat(subdistrict);
+    CREATE INDEX IF NOT EXISTS idx_geo_flat_zip ON geo_flat(zipcode);
   `);
 }
 
-// seed เล็กน้อยเพื่อให้ dropdown ใช้งานได้ทันที (ไม่ใช้ batch)
-async function __geoMaybeSeed(db){
-  const c = await db.prepare(`SELECT COUNT(*) n FROM geo_admin`).first();
-  if (c?.n > 0) return;
-
-  // ทำทีละคำสั่ง ปลอดภัยกว่า และข้ามซ้ำด้วย OR IGNORE
-  const ins = `INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`;
-  await db.prepare(ins).bind(10,   null,'province','กรุงเทพมหานคร', null).run();
-  await db.prepare(ins).bind(11,   null,'province','สมุทรปราการ',  null).run();
-  await db.prepare(ins).bind(12,   null,'province','นนทบุรี',       null).run();
-  await db.prepare(ins).bind(1001, 10,  'amphure', 'พระนคร',        null).run()
-  await db.prepare(ins).bind(1012, 10,  'amphure', 'ห้วยขวาง',      null).run()
-  await db.prepare(ins).bind(101201,1012,'tambon', 'ห้วยขวาง',     '10310').run();
-}
-
-// handler เฉพาะ /api/geo/*
+// NOTE: ไม่ seed อะไรเพิ่ม เพราะคุณ import ข้อมูลเข้า D1 แล้ว
 async function __handleGeo(ctx, path, db){
-  if (!path.startsWith('geo/')) return null; // ปล่อยให้ router เดิมทำงาน
+  if (!path.startsWith('geo/')) return null; // ไม่ใช่ /api/geo/* -> ปล่อย router เดิม
+
   const cors = ctx.baseHeaders || { "content-type": "application/json; charset=utf-8" };
+  await __geoEnsureSingle(db);
 
-  try {
-    await __geoEnsureSingle(db);
-    await __geoMaybeSeed(db);
-
-    // /api/geo/provinces
-    if (path === 'geo/provinces') {
-      const rs = await db.prepare(
-        `SELECT id, name FROM geo_admin WHERE level='province' ORDER BY name`
-      ).all();
-      return __geoJson(rs.results || rs || [], 200, cors);
-    }
-
-    // /api/geo/amphures?province_id=10
-    if (path.startsWith('geo/amphures')) {
-      const url = new URL(ctx.request.url);
-      const pid = url.searchParams.get('province_id');
-      if (!pid) return __geoJson({ error:'province_id required' }, 400, cors);
-
-      const rs = await db.prepare(
-        `SELECT id, name, parent_id AS province_id
-           FROM geo_admin
-          WHERE level='amphure' AND parent_id=?
-          ORDER BY name`
-      ).bind(+pid).all();
-      return __geoJson(rs.results || rs || [], 200, cors);
-    }
-
-    // /api/geo/tambons?amphure_id=...
-    if (path.startsWith('geo/tambons')) {
-      const url = new URL(ctx.request.url);
-      const aid = url.searchParams.get('amphure_id');
-      if (!aid) return __geoJson({ error:'amphure_id required' }, 400, cors);
-
-      const rs = await db.prepare(
-        `SELECT id, name, zipcode, parent_id AS amphure_id
-           FROM geo_admin
-          WHERE level='tambon' AND parent_id=?
-          ORDER BY name`
-      ).bind(+aid).all();
-      return __geoJson(rs.results || rs || [], 200, cors);
-    }
-
-    // สถานะรวม
-    if (path === 'geo/status') {
-      const p = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='province'`).first();
-      const a = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='amphure'`).first();
-      const t = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='tambon'`).first();
-      const payload = { provinces:p?.n||0, amphures:a?.n||0, tambons:t?.n||0 };
-      return __geoJson(payload, 200, cors);
-    }
-
-    return __geoJson({ error:'Not Found' }, 404, cors);
-  } catch (e) {
-    // ส่งรายละเอียดเล็กน้อย เพื่อดีบัก (ยังคง JSON/CORS เดิม)
-    return __geoJson({ error: 'geo-failed', detail: String(e) }, 500, cors);
+  // /api/geo/provinces  -> [{name}]
+  if (path === 'geo/provinces') {
+    const rs = await db.prepare(
+      `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province`
+    ).all();
+    return __geoJson((rs.results || rs || []).map(r => ({ id: r.name, name: r.name })), 200, cors);
   }
+
+  // /api/geo/amphures?province_id=กรุงเทพมหานคร  -> [{id,name,province}]
+  if (path.startsWith('geo/amphures')) {
+    const url = new URL(ctx.request.url);
+    const pid = url.searchParams.get('province_id'); // ใช้ชื่อจังหวัดเป็น id
+    if (!pid) return __geoJson({ error:'province_id required' }, 400, cors);
+    const rs = await db.prepare(
+      `SELECT DISTINCT district AS name FROM geo_flat WHERE province=? ORDER BY district`
+    ).bind(pid).all();
+    return __geoJson((rs.results || rs || []).map(r => ({
+      id: r.name, name: r.name, province_id: pid
+    })), 200, cors);
+  }
+
+  // /api/geo/tambons?amphure_id=เขตห้วยขวาง&province_id=กรุงเทพมหานคร -> [{id,name,zipcode}]
+  if (path.startsWith('geo/tambons')) {
+    const url = new URL(ctx.request.url);
+    const aid = url.searchParams.get('amphure_id');  // ใช้ชื่ออำเภอ/เขตเป็น id
+    const pid = url.searchParams.get('province_id'); // บังคับส่ง province ด้วย เพื่อกันชื่อซ้ำข้ามจังหวัด
+    if (!aid || !pid) return __geoJson({ error:'amphure_id & province_id required' }, 400, cors);
+    const rs = await db.prepare(
+      `SELECT subdistrict AS name, zipcode
+         FROM geo_flat
+        WHERE province=? AND district=?
+        GROUP BY subdistrict, zipcode
+        ORDER BY subdistrict`
+    ).bind(pid, aid).all();
+    return __geoJson((rs.results || rs || []).map(r => ({
+      id: r.name, name: r.name, zipcode: r.zipcode || ''
+    })), 200, cors);
+  }
+
+  return __geoJson({ error:'Not Found' }, 404, cors);
 }
 /* ===== /GEO helpers ===== */
+
 
 export const onRequest = async (ctx) => {
   const { request, env } = ctx;
@@ -122,11 +97,12 @@ export const onRequest = async (ctx) => {
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
   if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
-  // ===== GEO first (ใช้ตารางเดียว) =====
+  // ===== GEO first (ใช้ตารางเดียว geo_flat) =====
   {
     const r = await __handleGeo({ request, baseHeaders }, path, db);
-    if (r) return r; // จบที่นี่ถ้าเป็น /api/geo/*
+    if (r) return r; // เจอ /api/geo/* จะจบที่นี่เลย
   }
+
 
   // ===== HR: Employees =====
   if (seg[0] === "hr" && seg[1] === "employees") {
