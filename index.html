@@ -1533,356 +1533,374 @@
   </div>
 </div>
 <!-- 📦 Sale Order -->
-<div x-show="mainTab === 'sales' && open === 'saleorder'" x-data="saleOrderApp()" x-init="init()" x-cloak>
-  <div class="bg-white p-6 rounded shadow max-w-7xl mx-auto space-y-6">
+  <!-- 📦 Sale Order -->
+  <div x-show="mainTab === 'sales' && open === 'saleorder'" x-data="saleOrderApp()" x-init="init()" x-cloak>
+    <div class="bg-white p-6 rounded shadow max-w-7xl mx-auto my-8 space-y-6">
 
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-      <h2 class="text-2xl font-semibold">📦 Sale Order</h2>
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+        <h2 class="text-2xl font-semibold">📦 Sale Order</h2>
 
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-3 w-full md:w-auto items-end">
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium">Sale Order No.</label>
-          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 font-mono" x-model="form.soNo" readonly>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3 w-full md:w-auto items-end">
+          <div class="md:col-span-2">
+            <label class="block text-sm font-medium">Sale Order No.</label>
+            <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 font-mono" x-model="form.soNo" readonly>
+          </div>
+          <div>
+            <label class="block text-sm font-medium">SO Date</label>
+            <input type="date" class="mt-1 w-full border rounded px-3 py-2" x-model="form.soDate" :disabled="headerLocked">
+          </div>
+          <div class="md:col-span-2 flex items-end gap-2 md:justify-end">
+            <button type="button" class="px-3 py-2 rounded-lg border text-gray-700 hover:bg-gray-50" @click="openPending()">🕒 Pending</button>
+            <button type="button" class="px-3 py-2 rounded-lg border text-gray-700 hover:bg-gray-50" @click="resetForm()">♻️ New</button>
+            <button type="button" class="px-4 py-2 rounded-lg font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    :class="editingIndex===null ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'"
+                    :disabled="!canSave()" @click="save()">
+              <span x-text="editingIndex===null ? '💾 Save' : '📝 Update'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delivery / Due -->
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div>
+          <label class="block text-sm font-medium">Delivery Date</label>
+          <input type="date" class="mt-1 w-full border rounded px-3 py-2" x-model="form.deliveryDate" @change="recalcDue()">
         </div>
         <div>
-          <label class="block text-sm font-medium">SO Date</label>
-          <input type="date" class="mt-1 w-full border rounded px-3 py-2" x-model="form.soDate" :disabled="headerLocked">
+          <label class="block text-sm font-medium">Due Date</label>
+          <input type="date" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.dueDate" readonly>
         </div>
-        <div class="md:col-span-2 flex items-end gap-2 md:justify-end">
-          <button type="button" class="px-3 py-2 rounded-lg border text-gray-700 hover:bg-gray-50" @click="openPending()">🕒 Pending</button>
-          <button type="button" class="px-3 py-2 rounded-lg border text-gray-700 hover:bg-gray-50" @click="resetForm()">♻️ New</button>
-          <button type="button" class="px-4 py-2 rounded-lg font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                  :class="editingIndex===null ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700'"
-                  :disabled="!canSave()" @click="save()">
-            <span x-text="editingIndex===null ? '💾 Save' : '📝 Update'"></span>
-          </button>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium">หมายเหตุ (แสดงใน SO)</label>
+          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.noteGlobal">
         </div>
       </div>
-    </div>
 
-    <!-- Delivery / Due -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div>
-        <label class="block text-sm font-medium">Delivery Date</label>
-        <input type="date" class="mt-1 w-full border rounded px-3 py-2" x-model="form.deliveryDate" @change="recalcDue()">
-      </div>
-      <div>
-        <label class="block text-sm font-medium">Due Date</label>
-        <input type="date" class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.dueDate" readonly>
-      </div>
-      <div class="md:col-span-2">
-        <label class="block text-sm font-medium">หมายเหตุ (แสดงใน SO)</label>
-        <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.noteGlobal">
-      </div>
-    </div>
-
-    <!-- Customer (headerLocked เมื่อมาจาก Confirmed Quotation) -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div>
-        <label class="block text-sm font-medium">Ref. Quotation</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.refQuotationNo" readonly>
-      </div>
-      <div>
-        <label class="block text-sm font-medium">Customer Code</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.code" readonly>
-      </div>
-      <div>
-        <label class="block text-sm font-medium">National ID</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.nationalId" readonly>
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">ชื่อ</label>
-        <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.firstName" :readonly="headerLocked">
-      </div>
-      <div>
-        <label class="block text-sm font-medium">นามสกุล</label>
-        <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.lastName" :readonly="headerLocked">
-      </div>
-      <div>
-        <label class="block text-sm font-medium">อายุ</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.age" readonly>
-      </div>
-
-      <div>
-        <label class="block text-sm font-medium">โทรศัพท์</label>
-        <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.phone" :readonly="headerLocked">
-      </div>
-      <div>
-        <label class="block text-sm font-medium">อีเมล</label>
-        <input type="email" class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.email" :readonly="headerLocked">
-      </div>
-      <div>
-        <label class="block text-sm font-medium">อาการที่มาวันนี้ / หมายเหตุ</label>
-        <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.symptoms" :readonly="headerLocked">
-      </div>
-    </div>
-
-    <!-- Items -->
-    <div>
-      <h3 class="text-lg font-semibold mb-2">🧾 รายการบริการ</h3>
-      <div class="overflow-auto">
-        <table class="min-w-full text-sm border">
-          <thead class="bg-gray-100">
-            <tr>
-              <th class="px-2 py-2 border text-center w-14">No.</th>
-              <th class="px-2 py-2 border">บริการ</th>
-              <th class="px-2 py-2 border">ซี่ฟัน/โซน</th>
-              <th class="px-2 py-2 border text-right w-28">จำนวน</th>
-              <th class="px-2 py-2 border text-right w-36">ราคาต่อหน่วย</th>
-              <th class="px-2 py-2 border text-right w-36">ส่วนลด</th>
-              <th class="px-2 py-2 border text-right w-36">รวมสุทธิ</th>
-              <th class="px-2 py-2 border text-center w-20">ลบ</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="(row, i) in form.items" :key="i">
-              <tr class="hover:bg-gray-50">
-                <td class="px-2 py-2 border text-center" x-text="i+1"></td>
-                <td class="px-2 py-2 border"><input class="w-full border rounded px-2 py-1" x-model.trim="row.service" :readonly="headerLocked"></td>
-                <td class="px-2 py-2 border"><input class="w-full border rounded px-2 py-1" x-model.trim="row.tooth" :readonly="headerLocked"></td>
-                <td class="px-2 py-2 border text-right">
-                  <input type="number" min="1" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.qty" :readonly="headerLocked" @input="recalcOne(i)">
-                </td>
-                <td class="px-2 py-2 border text-right">
-                  <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.price" :readonly="headerLocked" @input="recalcOne(i)">
-                </td>
-                <td class="px-2 py-2 border text-right">
-                  <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.discount" :readonly="headerLocked" @input="recalcOne(i)">
-                </td>
-                <td class="px-2 py-2 border text-right font-medium" x-text="fmt(rowTotal(row))"></td>
-                <td class="px-2 py-2 border text-center">
-                  <button class="text-red-600 hover:underline" @click="removeRow(i)" :disabled="headerLocked">ลบ</button>
-                </td>
-              </tr>
-            </template>
-            <tr x-show="form.items.length===0">
-              <td colspan="8" class="text-center text-gray-500 p-4">ยังไม่มีรายการ</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <button class="mt-2 bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700" @click="addRow()" :disabled="headerLocked">+ เพิ่มรายการ</button>
-    </div>
-
-    <!-- Totals -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <div>
-        <label class="block text-sm font-medium">รวมก่อนลด</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right" :value="fmt(sumBefore())" readonly>
-      </div>
-      <div>
-        <label class="block text-sm font-medium">รวมส่วนลด</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right" :value="fmt(sumDiscount())" readonly>
-      </div>
-      <div>
-        <label class="block text-sm font-medium">ยอดสุทธิ</label>
-        <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right font-semibold" :value="fmt(netTotal())" readonly>
-      </div>
-    </div>
-
-    <!-- Payment -->
-    <div class="space-y-3">
-      <h3 class="text-lg font-semibold">💳 การชำระเงิน</h3>
-
+      <!-- Customer (headerLocked เมื่อมาจาก Confirmed Quotation) -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label class="block text-sm font-medium">ประเภทการชำระ</label>
-          <select class="mt-1 w-full border rounded px-3 py-2" x-model="form.payment.method" @change="onPaymentMethodChange()">
-            <option value="FULL">เต็มจำนวน</option>
-            <option value="INST">มัดจำแบ่งรอบ</option>
-          </select>
-        </div>
-        <div x-show="form.payment.method==='INST'">
-          <label class="block text-sm font-medium">จำนวนรอบ</label>
-          <input type="number" min="2" max="12" class="mt-1 w-full border rounded px-3 py-2" x-model.number="form.payment.rounds" @change="buildInstallments()">
+          <label class="block text-sm font-medium">Ref. Quotation</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.refQuotationNo" readonly>
         </div>
         <div>
-          <label class="block text-sm font-medium">หมายเหตุจากแพทย์</label>
-          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.doctorNote">
+          <label class="block text-sm font-medium">Customer Code</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.code" readonly>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">National ID</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.nationalId" readonly>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium">ชื่อ</label>
+          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.firstName" :readonly="headerLocked">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">นามสกุล</label>
+          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.lastName" :readonly="headerLocked">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">อายุ</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100" x-model="form.customer.age" readonly>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium">โทรศัพท์</label>
+          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.phone" :readonly="headerLocked">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">อีเมล</label>
+          <input type="email" class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.customer.email" :readonly="headerLocked">
+        </div>
+        <div>
+          <label class="block text-sm font-medium">อาการที่มาวันนี้ / หมายเหตุ</label>
+          <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.symptoms" :readonly="headerLocked">
         </div>
       </div>
 
-      <!-- Full payment controls -->
-      <div x-show="form.payment.method==='FULL'" class="flex flex-wrap items-center gap-3">
-        <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-sm"
-              :class="form.payment.full.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
-          <span class="w-2 h-2 rounded-full" :class="form.payment.full.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
-          <span x-text="form.payment.full.paid ? ('Paid ' + dateShort(form.payment.full.paidAt)) : 'Unpaid'"></span>
-        </span>
-
-        <button type="button" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                @click="receivePayment('FULL')"
-                x-show="!form.payment.full.paid">
-          ✅ รับชำระเงิน
-        </button>
-
-        <button type="button" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                @click="printReceipt('FULL')"
-                :disabled="!form.payment.full.paid">
-          🧾 พิมพ์ใบเสร็จ (PDF)
-        </button>
-
-        <div class="text-xs text-gray-500" x-show="form.payment.full.receiptNo">RC: <span x-text="form.payment.full.receiptNo"></span></div>
-      </div>
-
-      <!-- Installments table -->
-      <div x-show="form.payment.method==='INST'">
-        <div class="flex items-center justify-between">
-          <div class="text-sm text-gray-600">กรุณาให้ยอดรวมเท่ากับ <b x-text="fmt(netTotal())"></b></div>
-          <button class="px-3 py-1 rounded border hover:bg-gray-50 text-sm" @click="splitEven()">แบ่งเท่า ๆ กัน</button>
-        </div>
-        <div class="overflow-auto mt-2">
+      <!-- Items -->
+      <div>
+        <h3 class="text-lg font-semibold mb-2">🧾 รายการบริการ</h3>
+        <div class="overflow-auto">
           <table class="min-w-full text-sm border">
             <thead class="bg-gray-100">
               <tr>
-                <th class="px-2 py-2 border text-center w-16">รอบ</th>
-                <th class="px-2 py-2 border text-right w-36">จำนวนเงิน</th>
-                <th class="px-2 py-2 border text-left">สถานะ</th>
-                <th class="px-2 py-2 border text-center">การชำระ/พิมพ์ใบเสร็จ</th>
+                <th class="px-2 py-2 border text-center w-14">No.</th>
+                <th class="px-2 py-2 border">บริการ</th>
+                <th class="px-2 py-2 border">ซี่ฟัน/โซน</th>
+                <th class="px-2 py-2 border text-right w-28">จำนวน</th>
+                <th class="px-2 py-2 border text-right w-36">ราคาต่อหน่วย</th>
+                <th class="px-2 py-2 border text-right w-36">ส่วนลด</th>
+                <th class="px-2 py-2 border text-right w-36">รวมสุทธิ</th>
+                <th class="px-2 py-2 border text-center w-20">ลบ</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="(ins,i) in form.payment.installments" :key="i">
-                <tr>
+              <template x-for="(row, i) in form.items" :key="i">
+                <tr class="hover:bg-gray-50">
                   <td class="px-2 py-2 border text-center" x-text="i+1"></td>
+                  <td class="px-2 py-2 border"><input class="w-full border rounded px-2 py-1" x-model.trim="row.service" :readonly="headerLocked"></td>
+                  <td class="px-2 py-2 border"><input class="w-full border rounded px-2 py-1" x-model.trim="row.tooth" :readonly="headerLocked"></td>
                   <td class="px-2 py-2 border text-right">
-                    <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right"
-                           x-model.number="ins.amount" @input="validateInstallments()">
+                    <input type="number" min="1" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.qty" :readonly="headerLocked" @input="recalcOne(i)">
                   </td>
-                  <td class="px-2 py-2 border">
-                    <span class="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs"
-                          :class="ins.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
-                      <span class="w-1.5 h-1.5 rounded-full" :class="ins.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
-                      <span x-text="ins.paid ? ('Paid ' + dateShort(ins.paidAt)) : 'Unpaid'"></span>
-                    </span>
-                    <div class="text-xs text-gray-500" x-show="ins.receiptNo">RC: <span x-text="ins.receiptNo"></span></div>
+                  <td class="px-2 py-2 border text-right">
+                    <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.price" :readonly="headerLocked" @input="recalcOne(i)">
                   </td>
+                  <td class="px-2 py-2 border text-right">
+                    <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right" x-model.number="row.discount" :readonly="headerLocked" @input="recalcOne(i)">
+                  </td>
+                  <td class="px-2 py-2 border text-right font-medium" x-text="fmt(rowTotal(row))"></td>
                   <td class="px-2 py-2 border text-center">
-                    <template x-if="!ins.paid">
-                      <button class="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                              @click="receivePayment('INST', i)">✅ รับชำระ</button>
-                    </template>
-                    <template x-if="ins.paid">
-                      <button class="text-indigo-600 hover:underline"
-                              @click="printReceipt('INST', i)">🧾 พิมพ์ใบเสร็จ</button>
-                    </template>
+                    <button class="text-red-600 hover:underline" @click="removeRow(i)" :disabled="headerLocked">ลบ</button>
                   </td>
                 </tr>
               </template>
-              <tr>
-                <td class="px-2 py-2 border font-medium text-right" colspan="3">รวม</td>
-                <td class="px-2 py-2 border text-right font-semibold" x-text="fmt(sumInstallments())"></td>
+              <tr x-show="form.items.length===0">
+                <td colspan="8" class="text-center text-gray-500 p-4">ยังไม่มีรายการ</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p class="text-sm mt-1" :class="sumInstallments()===netTotal() ? 'text-green-600' : 'text-red-600'">
-          <span x-show="sumInstallments()===netTotal()">✅ ยอดรวมตรงกับยอดสุทธิ</span>
-          <span x-show="sumInstallments()!==netTotal()">⚠️ ยอดรวมยังไม่เท่ากับยอดสุทธิ</span>
-        </p>
+        <button class="mt-2 bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700" @click="addRow()" :disabled="headerLocked">+ เพิ่มรายการ</button>
       </div>
-    </div>
 
-    <!-- Records -->
-    <div class="border-t pt-4">
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <h3 class="text-lg font-semibold">📚 รายการ Sale Order (บันทึกแล้ว)</h3>
-        <div class="flex flex-wrap gap-2">
-          <input class="border rounded px-3 py-2 w-60" placeholder="กรอง: SO No./ลูกค้า/ID" x-model.trim="flt.keyword">
-          <input type="date" class="border rounded px-3 py-2" x-model="flt.from">
-          <input type="date" class="border rounded px-3 py-2" x-model="flt.to">
-          <input type="number" min="0" class="border rounded px-3 py-2 w-36" placeholder="Net ≥" x-model.number="flt.minNet">
+      <!-- Totals -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium">รวมก่อนลด</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right" :value="fmt(sumBefore())" readonly>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">รวมส่วนลด</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right" :value="fmt(sumDiscount())" readonly>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">ยอดสุทธิ</label>
+          <input class="mt-1 w-full border rounded px-3 py-2 bg-gray-100 text-right font-semibold" :value="fmt(netTotal())" readonly>
         </div>
       </div>
 
-      <div class="overflow-auto mt-3">
-        <table class="min-w-full text-sm border">
-          <thead class="bg-gray-100">
-            <tr>
-              <th class="px-2 py-2 border text-left">SO No.</th>
-              <th class="px-2 py-2 border text-left">Date</th>
-              <th class="px-2 py-2 border text-left">Customer</th>
-              <th class="px-2 py-2 border text-right">Net (THB)</th>
-              <th class="px-2 py-2 border text-left">Payment</th>
-              <th class="px-2 py-2 border text-left">Ref QNo.</th>
-              <th class="px-2 py-2 border text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="r in filteredSO()" :key="r.soNo">
-              <tr class="hover:bg-gray-50 align-top">
-                <td class="px-2 py-2 border font-medium" x-text="r.soNo"></td>
-                <td class="px-2 py-2 border" x-text="r.soDate"></td>
-                <td class="px-2 py-2 border">
-                  <div x-text="`${r.customer.firstName||''} ${r.customer.lastName||''}`.trim() || '-'"></div>
-                  <div class="text-xs text-gray-500" x-text="r.customer.nationalId || ''"></div>
-                </td>
-                <td class="px-2 py-2 border text-right" x-text="fmt(r.net)"></td>
-                <td class="px-2 py-2 border">
-                  <template x-if="r.payment.method==='FULL'">
-                    <span x-text="r.payment.full?.paid ? ('Full — Paid ' + dateShort(r.payment.full.paidAt)) : 'Full — Unpaid'"></span>
-                  </template>
-                  <template x-if="r.payment.method==='INST'">
-                    <span x-text="`Installments (${(r.payment.installments||[]).filter(x=>x.paid).length}/${(r.payment.installments||[]).length})`"></span>
-                  </template>
-                </td>
-                <td class="px-2 py-2 border" x-text="r.refQuotationNo || '-'"></td>
-                <td class="px-2 py-2 border text-center space-x-3">
-                  <button class="text-blue-600 hover:underline" @click="editByNo(r.soNo)">View/Edit</button>
-                  <button class="text-red-600 hover:underline opacity-50 cursor-not-allowed" title="ยังไม่รองรับลบฝั่ง API" disabled>Delete</button>
-                </td>
+      <!-- Payment -->
+      <div class="space-y-3">
+        <h3 class="text-lg font-semibold">💳 การชำระเงิน</h3>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-medium">ประเภทการชำระ</label>
+            <select class="mt-1 w-full border rounded px-3 py-2" x-model="form.payment.method" @change="onPaymentMethodChange()">
+              <option value="FULL">เต็มจำนวน</option>
+              <option value="INST">มัดจำแบ่งรอบ</option>
+            </select>
+          </div>
+          <div x-show="form.payment.method==='INST'">
+            <label class="block text-sm font-medium">จำนวนรอบ</label>
+            <input type="number" min="2" max="12" class="mt-1 w-full border rounded px-3 py-2" x-model.number="form.payment.rounds" @change="buildInstallments()">
+          </div>
+          <div>
+            <label class="block text-sm font-medium">หมายเหตุจากแพทย์</label>
+            <input class="mt-1 w-full border rounded px-3 py-2" x-model.trim="form.doctorNote">
+          </div>
+        </div>
+
+        <!-- Full payment controls -->
+        <div x-show="form.payment.method==='FULL'" class="flex flex-wrap items-center gap-3">
+          <span class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-sm"
+                :class="form.payment.full.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
+            <span class="w-2 h-2 rounded-full" :class="form.payment.full.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
+            <span x-text="form.payment.full.paid ? ('Paid ' + dateShort(form.payment.full.paidAt)) : 'Unpaid'"></span>
+          </span>
+
+          <button type="button" class="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                  @click="receivePayment('FULL')"
+                  x-show="!form.payment.full.paid">
+            ✅ รับชำระเงิน
+          </button>
+
+          <button type="button" class="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  @click="printReceipt('FULL')"
+                  :disabled="!form.payment.full.paid">
+            🧾 พิมพ์ใบเสร็จ (PDF)
+          </button>
+
+          <div class="text-xs text-gray-500" x-show="form.payment.full.receiptNo">RC: <span x-text="form.payment.full.receiptNo"></span></div>
+        </div>
+
+        <!-- Installments table -->
+        <div x-show="form.payment.method==='INST'">
+          <div class="flex items-center justify-between">
+            <div class="text-sm text-gray-600">กรุณาให้ยอดรวมเท่ากับ <b x-text="fmt(netTotal())"></b></div>
+            <button class="px-3 py-1 rounded border hover:bg-gray-50 text-sm" @click="splitEven()">แบ่งเท่า ๆ กัน</button>
+          </div>
+          <div class="overflow-auto mt-2">
+            <table class="min-w-full text-sm border">
+              <thead class="bg-gray-100">
+                <tr>
+                  <th class="px-2 py-2 border text-center w-16">รอบ</th>
+                  <th class="px-2 py-2 border text-right w-36">จำนวนเงิน</th>
+                  <th class="px-2 py-2 border text-left">สถานะ</th>
+                  <th class="px-2 py-2 border text-center">การชำระ/พิมพ์ใบเสร็จ</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(ins,i) in form.payment.installments" :key="i">
+                  <tr>
+                    <td class="px-2 py-2 border text-center" x-text="i+1"></td>
+                    <td class="px-2 py-2 border text-right">
+                      <input type="number" min="0" step="0.01" class="w-full border rounded px-2 py-1 text-right"
+                             x-model.number="ins.amount" @input="validateInstallments()">
+                    </td>
+                    <td class="px-2 py-2 border">
+                      <span class="inline-flex items-center gap-2 px-2 py-0.5 rounded-full text-xs"
+                            :class="ins.paid ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="ins.paid ? 'bg-emerald-600' : 'bg-gray-400'"></span>
+                        <span x-text="ins.paid ? ('Paid ' + dateShort(ins.paidAt)) : 'Unpaid'"></span>
+                      </span>
+                      <div class="text-xs text-gray-500" x-show="ins.receiptNo">RC: <span x-text="ins.receiptNo"></span></div>
+                    </td>
+                    <td class="px-2 py-2 border text-center">
+                      <template x-if="!ins.paid">
+                        <button class="px-3 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                                @click="receivePayment('INST', i)">✅ รับชำระ</button>
+                      </template>
+                      <template x-if="ins.paid">
+                        <button class="text-indigo-600 hover:underline"
+                                @click="printReceipt('INST', i)">🧾 พิมพ์ใบเสร็จ</button>
+                      </template>
+                    </td>
+                  </tr>
+                </template>
+                <tr>
+                  <td class="px-2 py-2 border font-medium text-right" colspan="3">รวม</td>
+                  <td class="px-2 py-2 border text-right font-semibold" x-text="fmt(sumInstallments())"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-sm mt-1" :class="sumInstallments()===netTotal() ? 'text-green-600' : 'text-red-600'">
+            <span x-show="sumInstallments()===netTotal()">✅ ยอดรวมตรงกับยอดสุทธิ</span>
+            <span x-show="sumInstallments()!==netTotal()">⚠️ ยอดรวมยังไม่เท่ากับยอดสุทธิ</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Records -->
+      <div class="border-t pt-4">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+          <h3 class="text-lg font-semibold">📚 รายการ Sale Order (บันทึกแล้ว)</h3>
+          <div class="flex flex-wrap gap-2">
+            <input class="border rounded px-3 py-2 w-60" placeholder="กรอง: SO No./ลูกค้า/ID" x-model.trim="flt.keyword">
+            <input type="date" class="border rounded px-3 py-2" x-model="flt.from">
+            <input type="date" class="border rounded px-3 py-2" x-model="flt.to">
+            <input type="number" min="0" class="border rounded px-3 py-2 w-36" placeholder="Net ≥" x-model.number="flt.minNet">
+          </div>
+        </div>
+
+        <div class="overflow-auto mt-3">
+          <table class="min-w-full text-sm border">
+            <thead class="bg-gray-100">
+              <tr>
+                <th class="px-2 py-2 border text-left">SO No.</th>
+                <th class="px-2 py-2 border text-left">Date</th>
+                <th class="px-2 py-2 border text-left">Customer</th>
+                <th class="px-2 py-2 border text-right">Net (THB)</th>
+                <th class="px-2 py-2 border text-left">Payment</th>
+                <th class="px-2 py-2 border text-left">Ref QNo.</th>
+                <th class="px-2 py-2 border text-center">Actions</th>
               </tr>
-            </template>
-            <tr x-show="filteredSO().length===0">
-              <td colspan="7" class="text-center text-gray-500 p-4">ไม่พบข้อมูล</td>
-            </tr>
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              <template x-for="r in filteredSO()" :key="r.soNo">
+                <tr class="hover:bg-gray-50 align-top">
+                  <td class="px-2 py-2 border font-medium" x-text="r.soNo"></td>
+                  <td class="px-2 py-2 border" x-text="r.soDate"></td>
+                  <td class="px-2 py-2 border">
+                    <div x-text="`${r.customer.firstName||''} ${r.customer.lastName||''}`.trim() || '-'"></div>
+                    <div class="text-xs text-gray-500" x-text="r.customer.nationalId || ''"></div>
+                  </td>
+                  <td class="px-2 py-2 border text-right" x-text="fmt(r.net)"></td>
+                  <td class="px-2 py-2 border">
+                    <template x-if="r.payment.method==='FULL'">
+                      <span x-text="r.payment.full?.paid ? ('Full — Paid ' + dateShort(r.payment.full.paidAt)) : 'Full — Unpaid'"></span>
+                    </template>
+                    <template x-if="r.payment.method==='INST'">
+                      <span x-text="`Installments (${(r.payment.installments||[]).filter(x=>x.paid).length}/${(r.payment.installments||[]).length})`"></span>
+                    </template>
+                  </td>
+                  <td class="px-2 py-2 border" x-text="r.refQuotationNo || '-'"></td>
+                  <td class="px-2 py-2 border text-center space-x-3">
+                    <button class="text-blue-600 hover:underline" @click="editByNo(r.soNo)">View/Edit</button>
+                    <button class="text-red-600 hover:underline opacity-50 cursor-not-allowed" title="ยังไม่รองรับลบฝั่ง API" disabled>Delete</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filteredSO().length===0">
+                <td colspan="7" class="text-center text-gray-500 p-4">ไม่พบข้อมูล</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pending Quotations (Modal) -->
+    <div x-show="showPending" x-transition
+         class="fixed inset-0 z-50 flex items-start justify-center p-4"
+         x-cloak>
+      <!-- backdrop -->
+      <div class="absolute inset-0 bg-black/30" @click="showPending=false"></div>
+
+      <!-- panel -->
+      <div class="relative w-full max-w-3xl bg-white rounded shadow-lg p-4">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold">Pending from Confirmed Quotation</h3>
+          <button class="px-2 py-1 border rounded" @click="showPending=false">✖</button>
+        </div>
+
+        <div class="mt-2">
+          <input class="border rounded p-2 w-full"
+                 placeholder="Search by Quote No / Customer..."
+                 x-model="pendingKeyword"
+                 @input.debounce.300ms="fetchPending()">
+        </div>
+
+        <div class="mt-3 text-sm text-gray-600" x-show="pendingLoading">⏳ กำลังโหลด...</div>
+        <div class="mt-3 text-sm text-red-600" x-show="!pendingLoading && pendingError" x-text="pendingError"></div>
+
+        <div class="mt-3 overflow-auto max-h-[60vh]" x-show="!pendingLoading && !pendingError">
+          <table class="w-full border text-sm">
+            <thead class="bg-gray-50 sticky top-0">
+              <tr>
+                <th class="p-2 border">Quote No</th>
+                <th class="p-2 border">Customer</th>
+                <th class="p-2 border">Total</th>
+                <th class="p-2 border">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="q in pendingRows" :key="q.qNo">
+                <tr class="hover:bg-gray-50">
+                  <td class="p-2 border" x-text="q.qNo"></td>
+                  <td class="p-2 border" x-text="(q.customerFirstName||'') + ' ' + (q.customerLastName||'')"></td>
+                  <td class="p-2 border text-right" x-text="fmt(q.grandTotal)"></td>
+                  <td class="p-2 border">
+                    <button class="px-2 py-1 border rounded" @click="useQuotation(q); showPending=false">Use</button>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="Array.isArray(pendingRows) && pendingRows.length===0">
+                <td colspan="4" class="p-3 text-center text-gray-500">ไม่พบ Quotation สถานะ Confirm</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
       </div>
     </div>
   </div>
 
-  <!-- Pending Quotations (status=Confirm) -->
-  <div x-show="showPending" x-transition
-      class="mt-3 border rounded bg-white p-3" @click.outside="showPending=false" x-cloak>
-    <div class="flex items-center justify-between">
-      <h3 class="font-semibold">Pending from Confirmed Quotation</h3>
-      <button class="px-2 py-1 border rounded" @click="showPending=false">✖</button>
-    </div>
-
-    <div class="mt-2">
-      <input class="border rounded p-2 w-full"
-            placeholder="Search by Quote No / Customer..."
-            x-model="pendingKeyword"
-            @input.debounce.300="fetchPending()">
-    </div>
-
-    <table class="w-full mt-3 border text-sm">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="p-2 border">Quote No</th>
-          <th class="p-2 border">Customer</th>
-          <th class="p-2 border">Total</th>
-          <th class="p-2 border">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="q in pendingRows" :key="q.qNo">
-          <tr>
-            <td class="p-2 border" x-text="q.qNo"></td>
-            <td class="p-2 border" x-text="(q.customerFirstName||'') + ' ' + (q.customerLastName||'')"></td>
-            <td class="p-2 border" x-text="num(q.grandTotal)"></td>
-            <td class="p-2 border">
-              <button class="px-2 py-1 border rounded" @click="useQuotation(q)">Use</button>
-            </td>
-          </tr>
-        </template>
-      </tbody>
-    </table>
-  </div>
-</div>
 
 <!-- Module 4: Contact & Follow-up Log -->
 <div class="module" id="module-contact" x-show="mainTab === 'sales' && open === 'contact'" x-cloak>
