@@ -82,10 +82,10 @@ export const onRequest = async (ctx) => {
   const { request, env } = ctx;
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
-  const db = env.DB;                      // D1 binding
+  const db = env.DB;
   const path = url.pathname.replace(/^\/api\/?/, '').trim();
-  
-  // ===== CORS / helpers =====
+
+  // ===== CORS + helpers (ต้องมาก่อน mount routers) =====
   const origin = request.headers.get("Origin") || "*";
   const baseHeaders = {
     "content-type": "application/json; charset=utf-8",
@@ -94,25 +94,22 @@ export const onRequest = async (ctx) => {
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-User",
   };
-  const send = (data, status=200) => new Response(JSON.stringify(data), { status, headers: baseHeaders });
+  const send = (data, status=200) =>
+    new Response(JSON.stringify(data), { status, headers: baseHeaders });
   const err  = (msg, status=400)   => send({ error: msg }, status);
 
-  // ตอบ preflight ก่อนเสมอ
+  // Preflight
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
   if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
-  // ===== GEO first (ใช้ตารางเดียว) =====
-  {
-    const r = await __handleGeo({ request, baseHeaders }, path, db);
-    if (r) return r; // จบที่นี่ถ้าเป็น /api/geo/*
-  }
-  // ===== Mount routers เฉพาะที่ต้องการจริง ๆ =====
-  // (เราใช้ Sales: Quotations block เดิมอยู่แล้ว จึงไม่ต้อง quotationsRouter ซ้ำ)
-  {
-    const r = await saleOrdersRouter({ request, url, path, db, send, err });
-    if (r) return r;
-  }
+  // ===== เรียก routers ตามลำดับนี้เท่านั้น =====
+  let r;
+  r = await geoRouter({ request, url, path, db, send, err });        if (r) return r;
+  r = await customersRouter({ request, url, path, db, send, err });   if (r) return r;
+  r = await quotationsRouter({ request, url, path, db, send, err });  if (r) return r;
+  r = await saleOrdersRouter({ request, url, path, db, send, err });  if (r) return r;
 
+  
   // ===== Common helpers ที่ส่วนอื่นต้องใช้ =====
   const seg = path.split('/').filter(Boolean);           // ["hr","employees",":id"]
   const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;
