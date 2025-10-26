@@ -21,12 +21,6 @@ export const onRequest = async (ctx) => {
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
   if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
-  // ===== GEO first (ใช้ตารางเดียว geo_flat) =====
-  {
-    const r = await __handleGeo({ request, baseHeaders }, path, db);
-    if (r) return r; // เจอ /api/geo/* จะจบที่นี่เลย
-  }
-
   // ===== GEO (single-table: geo_flat) =====
 if (seg[0] === "geo") {
   // ใช้ตารางเดียว geo_flat
