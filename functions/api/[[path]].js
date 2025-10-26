@@ -21,6 +21,14 @@ export const onRequest = async (ctx) => {
   if (method === "OPTIONS") return new Response(null, { status: 204, headers: baseHeaders });
   if (!url.pathname.startsWith("/api")) return err("Not found", 404);
 
+  // --- path segments & helpers (ต้องมี ก่อนใช้ seg/q/idFromPath) ---
+  const seg = path.split('/').filter(Boolean);             // ["geo","provinces"] | ["hr","employees",":id"] ...
+  const [domain, resource, id] = seg;
+  const idFromPath = seg.length >= 3 ? decodeURIComponent(seg[2]) : null;
+
+  const q = (name, def = "") => (url.searchParams.get(name) ?? def).trim();
+
+
   // ===== GEO (single-table: geo_flat) =====
 if (seg[0] === "geo") {
   // ใช้ตารางเดียว geo_flat
