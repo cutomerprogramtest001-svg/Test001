@@ -5,95 +5,77 @@ const __geoJson = (data, status=200, headers={}) =>
     headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 
-async function __geoEnsureSingle(db) {
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS geo_admin (
-      id        INTEGER PRIMARY KEY,
-      parent_id INTEGER,
-      level     TEXT NOT NULL CHECK(level IN ('province','amphure','tambon')),
-      name      TEXT NOT NULL,
-      zipcode   TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_level  ON geo_admin(level);
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_parent ON geo_admin(parent_id);
-    CREATE INDEX IF NOT EXISTS idx_geo_admin_zip    ON geo_admin(zipcode);
-  `);
-}
-
-// seed เล็กน้อยเพื่อให้ dropdown ใช้งานได้ทันที (ปลอดภัย: OR IGNORE)
-async function __geoMaybeSeed(db){
-  const c = await db.prepare(`SELECT COUNT(*) n FROM geo_admin`).first();
-  if (c?.n > 0) return;
-  await db.batch([
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(10,null,'province','กรุงเทพมหานคร',null),
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(11,null,'province','สมุทรปราการ',null),
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(12,null,'province','นนทบุรี',null),
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(1001,10,'amphure','พระนคร',null),
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(1012,10,'amphure','ห้วยขวาง',null),
-    db.prepare(`INSERT OR IGNORE INTO geo_admin(id,parent_id,level,name,zipcode) VALUES(?,?,?,?,?)`).bind(101201,1012,'tambon','ห้วยขวาง','10310')
-  ]);
-}
 
 // handler เฉพาะ /api/geo/*
 async function __handleGeo(ctx, path, db){
-  if (!path.startsWith('geo/')) return null; // ปล่อยให้ router เดิมทำงาน
+  if (!path.startsWith('geo/')) return null;
   const cors = ctx.baseHeaders || { "content-type": "application/json; charset=utf-8" };
 
-  await __geoEnsureSingle(db);
-  await __geoMaybeSeed(db);
-
-  // /api/geo/provinces
+  // === Provinces from geo_flat ===
   if (path === 'geo/provinces') {
     const rs = await db.prepare(
-      `SELECT id, name FROM geo_admin WHERE level='province' ORDER BY name`
+      `SELECT province AS name, MIN(id) AS id
+         FROM geo_flat
+        WHERE province IS NOT NULL AND TRIM(province) <> ''
+        GROUP BY province
+        ORDER BY name COLLATE NOCASE`
     ).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
+    return __geoJson({ data: (rs.results || rs || []) }, 200, cors);
   }
 
-  // /api/geo/amphures?province_id=10
+  // === Amphures by province_id (province pseudo-id from MIN(id)) ===
   if (path.startsWith('geo/amphures')) {
-    const url = new URL(ctx.request.url);
-    const pid = url.searchParams.get('province_id');
-    if (!pid)
-      return (typeof json === 'function'
-        ? json({ error:'province_id required' }, 400)
-        : __geoJson({ error:'province_id required' }, 400, cors));
+    const u = ctx.request ? new URL(ctx.request.url) : null;
+    const pid = u ? (u.searchParams.get('province_id') || '').trim() : '';
+    if (!pid) return __geoJson({ error:'province_id required' }, 400, cors);
+
+    // province_id มาจาก MIN(id) ในกลุ่มจังหวัด → ใช้ id นี้หา "province name"
+    const row = await db.prepare(`SELECT province FROM geo_flat WHERE id = ?`).bind(pid).first();
+    if (!row?.province) return __geoJson({ data: [] }, 200, cors);
+
     const rs = await db.prepare(
-      `SELECT id, name, parent_id AS province_id
-         FROM geo_admin
-        WHERE level='amphure' AND parent_id=?
-        ORDER BY name`
-    ).bind(pid).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
+      `SELECT district AS name, MIN(id) AS id
+         FROM geo_flat
+        WHERE province = ?
+          AND district IS NOT NULL AND TRIM(district) <> ''
+        GROUP BY district
+        ORDER BY name COLLATE NOCASE`
+    ).bind(row.province).all();
+    return __geoJson({ data: (rs.results || rs || []) }, 200, cors);
   }
 
-  // /api/geo/tambons?amphure_id=...
+  // === Tambons by amphure_id (amphure pseudo-id from MIN(id)) ===
   if (path.startsWith('geo/tambons')) {
-    const url = new URL(ctx.request.url);
-    const aid = url.searchParams.get('amphure_id');
-    if (!aid)
-      return (typeof json === 'function'
-        ? json({ error:'amphure_id required' }, 400)
-        : __geoJson({ error:'amphure_id required' }, 400, cors));
+    const u = ctx.request ? new URL(ctx.request.url) : null;
+    const aid = u ? (u.searchParams.get('amphure_id') || '').trim() : '';
+    if (!aid) return __geoJson({ error:'amphure_id required' }, 400, cors);
+
+    // amphure_id มาจาก MIN(id) ในกลุ่มอำเภอ → ใช้ id นี้หา "province & district"
+    const row = await db.prepare(`SELECT province, district FROM geo_flat WHERE id = ?`).bind(aid).first();
+    if (!row?.province || !row?.district) return __geoJson({ data: [] }, 200, cors);
+
     const rs = await db.prepare(
-      `SELECT id, name, zipcode, parent_id AS amphure_id
-         FROM geo_admin
-        WHERE level='tambon' AND parent_id=?
-        ORDER BY name`
-    ).bind(aid).all();
-    return (typeof json === 'function' ? json(rs.results || rs || []) : __geoJson(rs.results || rs || [], 200, cors));
+      `SELECT subdistrict AS name,
+              MIN(id) AS id,
+              MAX(COALESCE(zipcode,'')) AS zipcode
+         FROM geo_flat
+        WHERE province = ? AND district = ?
+          AND subdistrict IS NOT NULL AND TRIM(subdistrict) <> ''
+        GROUP BY subdistrict
+        ORDER BY name COLLATE NOCASE`
+    ).bind(row.province, row.district).all();
+    return __geoJson({ data: (rs.results || rs || []) }, 200, cors);
   }
 
-  // สถานะรวม
+  // (ทางเลือก) สถานะรวมสำหรับ sanity check
   if (path === 'geo/status') {
-    const p = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='province'`).first();
-    const a = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='amphure'`).first();
-    const t = await db.prepare(`SELECT COUNT(*) n FROM geo_admin WHERE level='tambon'`).first();
-    const payload = { provinces:p?.n||0, amphures:a?.n||0, tambons:t?.n||0 };
-    return (typeof json === 'function' ? json(payload) : __geoJson(payload, 200, cors));
+    const p = await db.prepare(`SELECT COUNT(DISTINCT province) n FROM geo_flat WHERE TRIM(province)<>''`).first();
+    const a = await db.prepare(`SELECT COUNT(DISTINCT province||'>'||district) n FROM geo_flat WHERE TRIM(district)<>''`).first();
+    const t = await db.prepare(`SELECT COUNT(DISTINCT province||'>'||district||'>'||subdistrict) n FROM geo_flat WHERE TRIM(subdistrict)<>''`).first();
+    return __geoJson({ data: { provinces:p?.n||0, amphures:a?.n||0, tambons:t?.n||0 } }, 200, cors);
   }
 
-  return (typeof json === 'function' ? json({ error:'Not Found' }, 404) : __geoJson({ error:'Not Found' }, 404, cors));
+  return null;
 }
 /* ===== /GEO helpers ===== */
 export const onRequest = async (ctx) => {
