@@ -670,6 +670,24 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
   }
 
   // POST /api/sales/orders (สร้างจาก Quotation ที่ confirm)
+    // GET /api/sales/orders/next-no?date=YYYY-MM-DD
+  if (path === "sales/orders/next-no" && request.method === "GET") {
+    const q = url.searchParams;
+    const ymd = (q.get("date") || new Date().toISOString().slice(0,10)).replace(/-/g,'');
+    const last = await db.prepare(
+      `SELECT soNo FROM sales_saleorders
+       WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
+    ).bind(`SO${ymd}-%`).first();
+
+    let run = 1;
+    if (last?.soNo) {
+      const m = last.soNo.match(/-(\d{4})$/);
+      if (m) run = parseInt(m[1],10) + 1;
+    }
+    const soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
+    return send({ soNo });
+  }
+
   if (path === "sales/orders" && request.method === "POST") {
     const b = await (async()=>{ try{return await request.json();}catch{return{};} })();
 
