@@ -54,9 +54,10 @@ if (seg[0] === "geo") {
       `SELECT DISTINCT province AS name FROM geo_flat ORDER BY province`
     ).all();
     const data = (rs.results || []).map((r, i) => ({
-      id: i + 1,          // สร้างเลขวิ่ง เพื่อให้ dropdown เดิมยัง x-model ด้วยตัวเลขได้
-      name_th: r.name,
-      name_en: r.name
+      id: i + 1,
+      name: r.name,          // ✅ UI มองเห็นแน่นอน
+      nameTh: r.name,        // (สำรองแบบ camelCase)
+      nameEn: r.name
     }));
     return send(data);
   }
@@ -84,9 +85,11 @@ if (seg[0] === "geo") {
 
     const data = (rs.results || []).map((r, i) => ({
       id: i + 1,
-      name_th: r.name,
-      name_en: r.name
+      name: r.name,      // ✅ ให้ UI ใช้ได้ทันที
+      nameTh: r.name,
+      nameEn: r.name
     }));
+
     return send(data);
   }
 
@@ -114,10 +117,12 @@ if (seg[0] === "geo") {
 
     const data = (rs.results || []).map((r, i) => ({
       id: i + 1,
-      name_th: r.name,
-      name_en: r.name,
-      zipcode: r.zipcode || ""
+      name: r.name,                  // ✅ ให้ UI ใช้ได้ทันที
+      nameTh: r.name,
+      nameEn: r.name,
+      zipcode: r.zipcode || ""       // ✅ UI ใช้คีย์ zipcode อยู่แล้ว
     }));
+
     return send(data);
   }
 
