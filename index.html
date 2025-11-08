@@ -5075,6 +5075,55 @@ window.saleOrderApp = function saleOrderApp(){
     // ===== lifecycle =====
     async init(){ await this.fetchSOList(); this.buildSchedule(); },
 
+    // ✅✅✅ START: รวมฟังก์ชัน api() เข้ามาข้างใน ✅✅✅
+    async api(path, options = {}) {
+      // ตั้งค่า default
+      const defaultHeaders = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      };
+
+      const config = {
+        ...options,
+        headers: {
+          ...defaultHeaders,
+          ...options.headers,
+        },
+      };
+
+      // ถ้ามี body และเป็น object ให้แปลงเป็น JSON
+      if (config.body && typeof config.body === 'object') {
+        config.body = JSON.stringify(config.body);
+      }
+
+      try {
+        const response = await fetch(path, config);
+
+        // ถ้า response ไม่ใช่ 2xx (เช่น 404, 500)
+        if (!response.ok) {
+          try {
+            const errData = await response.json();
+            console.error('API Error Response:', errData);
+            throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+          } catch (e) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+        }
+        
+        // ถ้า response เป็น 204 No Content
+        if (response.status === 204) {
+          return null;
+        }
+        
+        return response.json();
+
+      } catch (error) {
+        console.error('Fetch API Error:', error);
+        throw error; // ส่ง error ต่อให้ .catch() ที่เรียกใช้
+      }
+    },
+    // ✅✅✅ END: รวมฟังก์ชัน api() ✅✅✅
+
     // ===== utils =====
     fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); },
     dateShort(iso){ try{ return new Date(iso).toISOString().slice(0,10);}catch{return "";} },
@@ -5102,9 +5151,10 @@ window.saleOrderApp = function saleOrderApp(){
         url.searchParams.set("status","Confirmed");
         url.searchParams.set("withItems","1");
         if (this.pendingKeyword) url.searchParams.set("search", this.pendingKeyword);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        this.pendingRows = await res.json();
+        
+        // ✅ แก้ไข: ใช้ this.api()
+        this.pendingRows = await this.api(url.toString(), { method: 'GET' }); 
+        
         this.pendingError = (Array.isArray(this.pendingRows) && this.pendingRows.length===0)
           ? "ไม่พบ Quotation สถานะ Confirmed" : "";
       }catch(e){
@@ -5116,39 +5166,24 @@ window.saleOrderApp = function saleOrderApp(){
 
     // >>> UPDATED: ดึง SO Date วันนี้ + ขอเลข SO ถัดไปทันทีหลัง Use
     async useQuotation(q){
-      // 1) ตั้ง soDate เป็นวันนี้ (ให้บันทึกได้ และเป็นฐานในการออกเลขจริง)
       this.form.soDate = this.today();
-
-      // 2) จำ ref quotation
       this._refQuotation = { id: q.id, qNo: q.qNo };
-
-      // 3) map หัวลูกค้า
       this.form.refQuotationNo = q.qNo || "";
       this.form.customer.code       = q.customerCode || "";
       this.form.customer.firstName  = q.customerFirstName || "";
       this.form.customer.lastName   = q.customerLastName || "";
       this.form.customer.nationalId = q.customerNationalId || "";
       this.form.customer.age        = Number(q.customerAge || 0);
-
-      // 4) map รายการ
       this.form.items = (q.items||[]).map(it => {
         const qty = Number(it.qty||0), price = Number(it.unitPrice||0);
         const line = Number(it.lineTotal ?? (qty*price));
         const discount = Math.max(0, qty*price - line);
         return { service: it.itemCode||"", tooth: it.itemName||"", qty, price, discount };
       });
-
-      // 5) ล็อคหัว
       this.headerLocked = true;
-
-      // 6) โหลดเครดิต + สร้างตารางงวด
       await this.loadCredit(this.form.customer.code);
       this.buildSchedule();
-
-      // 7) ขอ "เลข SO จริง" ตามวันที่ (ถ้า API ไม่พร้อม → ตั้ง TMP)
       await this.setNextSoNoPreview();
-
-      // 8) ปิด modal
       this.showPending = false;
     },
 
@@ -5156,11 +5191,9 @@ window.saleOrderApp = function saleOrderApp(){
     async setNextSoNoPreview(){
       const ymd = (this.form.soDate || this.today()).replace(/-/g,'');
       try{
-        const res = await fetch(`/api/sales/orders/next-no?date=${this.form.soDate||this.today()}`);
-        if (res.ok){
-          const j = await res.json();
-          if (j && j.soNo) { this.form.soNo = j.soNo; return; }
-        }
+        // ✅ แก้ไข: ใช้ this.api()
+        const j = await this.api(`/api/sales/orders/next-no?date=${this.form.soDate||this.today()}`);
+        if (j && j.soNo) { this.form.soNo = j.soNo; return; }
         this.form.soNo = `SO${ymd}-TMP`;
       }catch(_){
         this.form.soNo = `SO${ymd}-TMP`;
@@ -5171,9 +5204,14 @@ window.saleOrderApp = function saleOrderApp(){
     async loadCredit(code){
       this.creditDays = 0;
       if (!code) return;
-      const res = await fetch(`/api/sales/customers/${encodeURIComponent(code)}/credit`);
-      const j = await res.json();
-      if (!j.error) this.creditDays = Number(j.creditDays||0);
+      try {
+        // ✅ แก้ไข: ใช้ this.api()
+        const j = await this.api(`/api/sales/customers/${encodeURIComponent(code)}/credit`);
+        if (!j.error) this.creditDays = Number(j.creditDays||0);
+      } catch(e) {
+        console.error('Failed to load credit days', e);
+        this.creditDays = 0;
+      }
     },
     onDeliveryChange(){ this.buildSchedule(); },
 
@@ -5191,11 +5229,7 @@ window.saleOrderApp = function saleOrderApp(){
       const rounds = (this.form.payment.method === "FULL") ? 1 : Math.max(2, Number(this.form.payment.rounds||2));
       const k = Number(this.creditDays||0);
       const d0 = this.form.deliveryDate || this.today();
-
-      // สร้างตารางงวดว่าง
       this.form.payment.schedule = Array.from({length:rounds},()=>({amount:0, dueDate:"", paid:false, paidAt:null, receiptNo:null}));
-
-      // แบ่งยอด
       if (rounds === 1) {
         this.form.payment.schedule[0].amount = +net.toFixed(2);
       } else {
@@ -5204,8 +5238,6 @@ window.saleOrderApp = function saleOrderApp(){
         for (let i=0;i<rounds-1;i++) this.form.payment.schedule[i].amount = base;
         this.form.payment.schedule[rounds-1].amount = last;
       }
-
-      // คำนวณ Due Date ตามเครดิต (หากมี)
       for (let i=0;i<rounds;i++){
         this.form.payment.schedule[i].dueDate = k>0 ? this.addDays(d0, k*(i+1)) : "";
       }
@@ -5214,7 +5246,7 @@ window.saleOrderApp = function saleOrderApp(){
 
     splitEven(){ this.buildSchedule(); },
     sumSchedule(){ return +(this.form.payment.schedule||[]).reduce((s,x)=>s+Number(x.amount||0),0).toFixed(2); },
-    onAmountChange(){ // หากแก้จำนวน/รายการ ให้ rebuild หากเป็นแบ่งรอบเดิม
+    onAmountChange(){
       if (this.form.payment.method==='INST') this.buildSchedule();
     },
 
@@ -5223,7 +5255,7 @@ window.saleOrderApp = function saleOrderApp(){
       if (ins.paid) return false;
       if (!ins.dueDate) return false;
       const today = this.today();
-      return today > ins.dueDate; // เปรียบเทียบ YYYY-MM-DD
+      return today > ins.dueDate;
     },
     statusText(ins){ return ins.paid ? `Paid ${this.dateShort(ins.paidAt)}` : (this.isOverdue(ins) ? 'Overdue' : 'Unpaid'); },
     statusBadgeClass(ins){
@@ -5248,143 +5280,136 @@ window.saleOrderApp = function saleOrderApp(){
 
     // ===== Save =====
     canSave(){
-      // ให้ save ได้เมื่อมีลูกค้า + รายการ + ยอดสุทธิ > 0
       return !!this.form.customer.code && this.form.items.length>0 && this.netTotal()>0;
     },
     async save(){
-      const totalBeforeDiscount = this.sumBefore();
-      const discount = this.sumDiscount();
-      const grandTotal = this.netTotal();
-
-      // header dueDate เพื่อความเข้ากัน API: ใช้ due งวดสุดท้าย (หรือว่าง)
-      const lastDue = (this.form.payment.schedule.slice(-1)[0]?.dueDate) || "";
-
-      // payload items
-      const items = this.form.items.map(r => ({
-        itemCode: r.service || "",
-        itemName: r.tooth || "",
-        qty: Number(r.qty||0),
-        uom: "",
-        unitPrice: Number(r.price||0),
-        lineTotal: this.rowTotal(r),
-        remark: ""
-      }));
-
-      // map payment → API (เก็บตาราง schedule ทั้งชุด)
-      const payload = {
-        // --- ส่วน Header ที่ API รู้จัก ---
-        soDate: this.form.soDate || this.today(),
-        status: "Open",
-        customerCode: this.form.customer.code, // API รับ customerCode
-        billTo: "", // (ส่งค่าจากฟอร์มถ้ามี)
-        shipTo: "", // (ส่งค่าจากฟอร์มถ้ามี)
-        paymentTerm: "", // (ส่งค่าจากฟอร์มถ้ามี)
-        totalBeforeDiscount,
-        discount,
-        grandTotal,
-        note: [this.form.noteGlobal, this.form.symptoms, this.form.doctorNote].filter(Boolean).join(" | "),
-        deliveryDate: this.form.deliveryDate || this.today(),
-        dueDate: lastDue, // header (เพื่อเข้ากับ backend เดิม)
-        paymentType: (this.form.payment.method==='FULL' ? 'FULL' : 'DEPOSIT'),
-        depositAmount: (this.form.payment.method==='FULL' ? 0 : Number(this.form.payment.schedule?.[0]?.amount||0)),
-        depositPercent: null,
-        installmentCount: this.form.payment.schedule.length,
-        paymentPlan: { method: this.form.payment.method, schedule: this.form.payment.schedule },
-        refQuotationNo: this.form.refQuotationNo || null,
-        // --- ส่วน Items ---
-        items,
-      };
-
-      const res = await fetch(`/api/sales/orders`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify(payload)
-      });
-      const j = await res.json();
-      if (j.error) { alert(j.error); return; }
-
-      // แสดงเลข SO ที่ backend gen ให้ (จริง)
-      this.form.soNo = j.soNo || this.form.soNo || '(New)';
-      this.form.soDate = this.form.soDate || this.today();
-
-      // ✅✅✅ START: แก้ไขการเพิ่มข้อมูลใน List ให้เป็นแบบ Flat ✅✅✅
-      // เพิ่มเข้า list ให้เห็นทันที (ต้องตรงกับโครงสร้างที่ fetchSOList ดึงมา)
-      this.list.unshift({
-        id: j.soId || null, // (API ของเรารอบที่แล้วส่ง soId กลับมา)
-        soNo: this.form.soNo,
-        soDate: this.form.soDate,
-        status: this.form.status,
-        customerCode: this.form.customer.code,
-        // (เพิ่ม field อื่นๆ ที่ API ส่งกลับมา หรือมีในฟอร์ม)
-        grandTotal: grandTotal,
-        totalPaid: j.totalPaid, // (API ของเรารอบที่แล้วส่ง totalPaid กลับมา)
-        balance: j.balance,     // (API ของเรารอบที่แล้วส่ง balance กลับมา)
-        paymentType: payload.paymentType,
-        refQuotationNo: this.form.refQuotationNo || ""
-      });
-      // ✅✅✅ END: แก้ไขการเพิ่มข้อมูลใน List ✅✅✅
-
-      // ทำให้ Quotation หลุดจาก Pending
       try {
-        if (this._refQuotation?.id != null) {
-          await fetch(`/api/sales/quotations/${this._refQuotation.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type":"application/json" },
-            body: JSON.stringify({ confirmed: false })
-          });
-          // ตัดออกจาก modal ที่แคชไว้
-          this.pendingRows = (this.pendingRows || []).filter(x => x.qNo !== this._refQuotation.qNo);
-        }
-      } catch(e) { console.warn("soft-close quotation failed:", e); }
-      this._refQuotation = null;
+        const totalBeforeDiscount = this.sumBefore();
+        const discount = this.sumDiscount();
+        const grandTotal = this.netTotal();
+        const lastDue = (this.form.payment.schedule.slice(-1)[0]?.dueDate) || "";
+        const items = this.form.items.map(r => ({
+          itemCode: r.service || "",
+          itemName: r.tooth || "",
+          qty: Number(r.qty||0),
+          uom: "",
+          unitPrice: Number(r.price||0),
+          lineTotal: this.rowTotal(r),
+          remark: ""
+        }));
 
-      alert(`Saved SO: ${this.form.soNo}`);
-      // this.resetForm(); // (เอาคอมเมนต์ออกถ้าต้องการล้างฟอร์มหลังบันทึก)
+        const payload = {
+          soDate: this.form.soDate || this.today(),
+          status: "Open",
+          customerCode: this.form.customer.code,
+          billTo: "",
+          shipTo: "",
+          paymentTerm: "",
+          totalBeforeDiscount,
+          discount,
+          grandTotal,
+          note: [this.form.noteGlobal, this.form.symptoms, this.form.doctorNote].filter(Boolean).join(" | "),
+          deliveryDate: this.form.deliveryDate || this.today(),
+          dueDate: lastDue,
+          paymentType: (this.form.payment.method==='FULL' ? 'FULL' : 'DEPOSIT'),
+          depositAmount: (this.form.payment.method==='FULL' ? 0 : Number(this.form.payment.schedule?.[0]?.amount||0)),
+          depositPercent: null,
+          installmentCount: this.form.payment.schedule.length,
+          paymentPlan: { method: this.form.payment.method, schedule: this.form.payment.schedule },
+          items,
+          refQuotationNo: this.form.refQuotationNo || null
+        };
+
+        // ✅ แก้ไข: ใช้ this.api()
+        const j = await this.api(`/api/sales/orders`, {
+          method: "POST",
+          body: payload // body จะถูก stringify โดยอัตโนมัติ
+        });
+
+        if (j.error) { alert(j.error); return; } // (api() จะ throw error ถ้า network fail)
+
+        this.form.soNo = j.soNo || this.form.soNo || '(New)';
+        this.form.soDate = this.form.soDate || this.today();
+
+        this.list.unshift({
+          id: j.soId || null,
+          soNo: this.form.soNo,
+          soDate: this.form.soDate,
+          status: this.form.status,
+          customerCode: this.form.customer.code,
+          grandTotal: grandTotal,
+          totalPaid: j.totalPaid,
+          balance: j.balance,
+          paymentType: payload.paymentType,
+          refQuotationNo: this.form.refQuotationNo || ""
+        });
+
+        // ทำให้ Quotation หลุดจาก Pending
+        try {
+          if (this._refQuotation?.id != null) {
+            // ✅ แก้ไข: ใช้ this.api()
+            await this.api(`/api/sales/quotations/${this._refQuotation.id}`, {
+              method: "PATCH",
+              body: { confirmed: false }
+            });
+            this.pendingRows = (this.pendingRows || []).filter(x => x.qNo !== this._refQuotation.qNo);
+          }
+        } catch(e) { console.warn("soft-close quotation failed:", e); }
+        this._refQuotation = null;
+
+        alert(`Saved SO: ${this.form.soNo}`);
+        // this.resetForm();
+
+      } catch (saveError) {
+        console.error("Save failed:", saveError);
+        alert(`Error: ${saveError.message}`);
+      }
     },
 
     // ===== Records =====
     async fetchSOList(){
-      const u = new URL(`/api/sales/orders`, location.origin);
-      u.searchParams.set("page","1"); u.searchParams.set("size","50");
-      const res = await fetch(u);
-      const rows = await res.json();
-      // ✅✅✅ START: แก้ไข fetchSOList ให้รับข้อมูลแบบ Flat (ไม่ต้อง map) ✅✅✅
-      // API ของเรา (SELECT *) ส่งข้อมูลมาแบบ Flat อยู่แล้ว
-      this.list = rows || [];
-      // ✅✅✅ END: แก้ไข fetchSOList ✅✅✅
+      try {
+        const u = new URL(`/api/sales/orders`, location.origin);
+        u.searchParams.set("page","1"); u.searchParams.set("size","50");
+        
+        // ✅ แก้ไข: ใช้ this.api()
+        const rows = await this.api(u.toString());
+        this.list = rows || [];
+      } catch (e) {
+        console.error("Failed to fetch SO list", e);
+        alert("Failed to load SO list: " + e.message);
+      }
     },
 
-    // ✅✅✅ START: แก้ไข filteredSO ให้กรองข้อมูลแบบ Flat ✅✅✅
     filteredSO(){
       let a = this.list.slice();
       if (this.flt.keyword) {
         const k = this.flt.keyword.toLowerCase();
         a = a.filter(r =>
           (r.soNo||"").toLowerCase().includes(k) ||
-          (r.customerCode||"").toLowerCase().includes(k) // แก้จาก r.customer.firstName
+          (r.customerCode||"").toLowerCase().includes(k)
         );
       }
       if (this.flt.from) a = a.filter(r => !r.soDate || r.soDate >= this.flt.from);
-      if (this.flt.to)   a = a.f.ilter(r => !r.soDate || r.soDate <= this.flt.to);
-      // แก้ r.net เป็น r.grandTotal
+      if (this.flt.to)   a = a.filter(r => !r.soDate || r.soDate <= this.flt.to);
       if (this.flt.minNet!=null && this.flt.minNet!=="") a = a.filter(r => Number(r.grandTotal||0) >= Number(this.flt.minNet));
       return a;
     },
-    // ✅✅✅ END: แก้ไข filteredSO ✅✅✅
 
-    // ✅✅✅ START: เพิ่มฟังก์ชัน edit(i, r) ที่หายไป ✅✅✅
-    // ฟังก์ชันนี้จำเป็นสำหรับปุ่ม "View/Edit"
+    // ✅✅✅ START: แก้ไขฟังก์ชัน edit() ให้เรียก this.api() ✅✅✅
     async edit(index, rowData) {
       this.editingIndex = index;
       
       // --- 1. คัดลอกข้อมูล Header ทั้งหมด ---
-      // (rowData ของคุณมีข้อมูลครบแล้วจาก SELECT * ที่ Backend)
       this.form.soNo = rowData.soNo;
       this.form.soDate = rowData.soDate;
       this.form.status = rowData.status;
-      this.form.customer.code = rowData.customerCode; // <-- แมป customerCode
+      this.form.customer.code = rowData.customerCode;
       // (ถ้าต้องการ firstName/lastName ในฟอร์ม ต้องเรียก API ดึงลูกค้า)
-      // this.form.customer.firstName = ...
+      // try {
+      //   const cust = await this.api(`/api/customers/${rowData.customerCode}`);
+      //   this.form.customer = { ...this.form.customer, ...cust };
+      // } catch(e) { console.warn('Failed to load full customer'); }
       
       this.form.refQuotationNo = rowData.refQuotationNo;
       this.form.noteGlobal = rowData.note; // (อาจจะต้องแยก note กลับ)
@@ -5392,29 +5417,28 @@ window.saleOrderApp = function saleOrderApp(){
 
       // --- 2. คัดลอกข้อมูล Payment ---
       this.form.payment.method = (rowData.paymentType==='DEPOSIT'?'INST':'FULL');
-      // พยายามแปลง paymentPlan (JSON string) กลับเป็น object
       try {
         const plan = JSON.parse(rowData.paymentPlan || 'null');
         if (plan && plan.schedule) {
           this.form.payment.schedule = plan.schedule;
           this.form.payment.rounds = plan.schedule.length;
         } else {
-          // ถ้าไม่มี plan แต่รู้ยอด ให้สร้างขึ้นมาใหม่
           this.form.payment.schedule = [{ 
             amount: rowData.grandTotal, 
             dueDate: rowData.dueDate, 
             paid: (rowData.balance <= 0), 
-            paidAt: (rowData.balance <= 0) ? rowData.UpdateDate : null, // (ประมาณการ)
+            paidAt: (rowData.balance <= 0) ? rowData.UpdateDate : null,
             receiptNo: null 
           }];
           this.form.payment.rounds = 1;
         }
       } catch(e) { this.form.payment.schedule = []; this.form.payment.rounds = 1; }
 
-      // --- 3. เรียก API ดึง Items (จาก API ใหม่ที่เราสร้างใน [[path]].js) ---
+      // --- 3. เรียก API ดึง Items (โดยใช้ this.api()) ---
       try {
-        // นี่คือ API ใหม่: /api/sales/orders/items
-        const itemsData = await api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
+        // ✅ แก้ไข: ใช้ this.api()
+        const itemsData = await this.api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
+        
         // แปลงกลับให้เข้ากับฟอร์ม
         this.form.items = (itemsData || []).map(it => ({
             service: it.itemCode || "",
@@ -5422,17 +5446,17 @@ window.saleOrderApp = function saleOrderApp(){
             qty: Number(it.qty||0),
             price: Number(it.unitPrice||0),
             discount: Math.max(0, (Number(it.qty||0) * Number(it.unitPrice||0)) - Number(it.lineTotal||0)),
-            // (ต้องมั่นใจว่า discount คำนวณกลับถูก หรือ lineTotal ถูก)
         }));
       } catch (e) {
         console.error('Failed to load items', e);
+        alert('Failed to load items: ' + e.message);
         this.form.items = [];
       }
       
       this.headerLocked = true; 
-      window.scrollTo(0, 0); // เลื่อนหน้าจอขึ้นบนสุด
+      window.scrollTo(0, 0);
     },
-    // ✅✅✅ END: เพิ่มฟังก์ชัน edit(i, r) ✅✅✅
+    // ✅✅✅ END: แก้ไขฟังก์ชัน edit() ✅✅✅
 
     resetForm(){
       this.headerLocked = false;
