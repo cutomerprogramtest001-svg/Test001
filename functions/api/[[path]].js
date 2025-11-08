@@ -657,7 +657,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     const size = Math.min(parseInt(url.searchParams.get("size") || "20", 10), 100);
     const off  = (page - 1) * size;
 
-    let base = `SELECT * FROM sales_saleorders`;
+    let base = `SELECT * FROM sales_saleorders`; // ถูกต้องแล้วที่ใช้ SELECT * เพราะหน้า Edit ต้องการทุกคอลัมน์
     let where = "";
     let bind = [];
     if (q) {
@@ -669,8 +669,8 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     return send(rows.results || []);
   }
 
-  // POST /api/sales/orders (สร้างจาก Quotation ที่ confirm)
-    // GET /api/sales/orders/next-no?date=YYYY-MM-DD
+  // GET /api/sales/orders/next-no?date=YYYY-MM-DD
+  // (ผมลบโค้ดบล็อกนี้ที่ซ้ำกันออกไป 1 บล็อกนะครับ)
   if (path === "sales/orders/next-no" && request.method === "GET") {
     const q = url.searchParams;
     const ymd = (q.get("date") || new Date().toISOString().slice(0,10)).replace(/-/g,'');
@@ -681,182 +681,180 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
 
     let run = 1;
     if (last?.soNo) {
-      const m = last.soNo.match(/-(\d{4})$/);
+      const m = last.soNo.match(/-(\d{3,4})$/);
       if (m) run = parseInt(m[1],10) + 1;
     }
     const soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
     return send({ soNo });
   }
 
-  // GET /api/sales/orders/next-no?date=YYYY-MM-DD
-if (path === "sales/orders/next-no" && request.method === "GET") {
-  const q = url.searchParams;
-  const ymd = (q.get("date") || new Date().toISOString().slice(0,10)).replace(/-/g,'');
-  const last = await db.prepare(
-    `SELECT soNo FROM sales_saleorders
-     WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
-  ).bind(`SO${ymd}-%`).first();
-
-  let run = 1;
-  if (last?.soNo) {
-    const m = last.soNo.match(/-(\d{3,4})$/);
-    if (m) run = parseInt(m[1],10) + 1;
-  }
-  const soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
-  return send({ soNo });
-}
-
-
   // POST /api/sales/orders
-if (path === "sales/orders" && request.method === "POST") {
-  try {
-    const b = await (async()=>{
-      try{ return await request.json(); } catch { return {}; }
-    })();
+  if (path === "sales/orders" && request.method === "POST") {
+    try {
+      const b = await (async()=>{
+        try{ return await request.json(); } catch { return {}; }
+      })();
 
-    // --- 1) gen soNo (ใช้ soNo ที่ได้รับถ้าไม่ใช่ TMP) ---
-    const soDate = (b.soDate || new Date().toISOString().slice(0,10));
-    let soNo = (b.soNo || "").trim();
-    const ymd = soDate.replace(/-/g,'');
-    if (!soNo || /-TMP$/i.test(soNo)) {
-      const last = await db.prepare(
-        `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
-      ).bind(`SO${ymd}-%`).first();
-      let run = 1;
-      if (last?.soNo) {
-        const m = last.soNo.match(/-(\d{3,4})$/);
-        if (m) run = parseInt(m[1],10)+1;
+      // --- 1) gen soNo (ใช้ soNo ที่ได้รับถ้าไม่ใช่ TMP) ---
+      const soDate = (b.soDate || new Date().toISOString().slice(0,10));
+      let soNo = (b.soNo || "").trim();
+      const ymd = soDate.replace(/-/g,'');
+      if (!soNo || /-TMP$/i.test(soNo)) {
+        const last = await db.prepare(
+          `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
+        ).bind(`SO${ymd}-%`).first();
+        let run = 1;
+        if (last?.soNo) {
+          const m = last.soNo.match(/-(\d{3,4})$/);
+          if (m) run = parseInt(m[1],10)+1;
+        }
+        soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
       }
-      soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
-    }
 
-    // --- 2) หา creditDays ของลูกค้า (ถ้ามี) ---
-    let creditDays = 0;
-    if (b.customerCode) {
-      try {
-        const c = await db.prepare(`SELECT creditDays FROM sales_customers WHERE code=? LIMIT 1`).bind(b.customerCode).first();
-        creditDays = Number(c?.creditDays || 0);
-      } catch(e){ creditDays = 0; }
-    }
-
-    // --- 3) คำนวณ dueDate = deliveryDate + creditDays ---
-    const deliveryDate = (b.deliveryDate || "").toString().trim();
-    let dueDate = "";
-    if (deliveryDate) {
-      const dt = new Date(deliveryDate);
-      if (Number.isFinite(creditDays) && creditDays>0) dt.setDate(dt.getDate() + Number(creditDays));
-      dueDate = dt.toISOString().slice(0,10);
-    } else {
-      dueDate = (b.dueDate || "").toString().trim(); // ถ้าส่งมาใช้ค่านั้น
-    }
-
-    // --- 4) payment / balance calculations ---
-    const paymentType = (b.paymentType || "FULL").toString().toUpperCase(); // FULL | DEPOSIT
-    const grandTotal  = Number(b.grandTotal || 0);
-    let depositAmount = Number(b.depositAmount || 0);
-    const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
-    const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
-
-    if (paymentType === "DEPOSIT") {
-      if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
-        depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
+      // --- 2) หา creditDays ของลูกค้า (ถ้ามี) ---
+      let creditDays = 0;
+      if (b.customerCode) {
+        try {
+          const c = await db.prepare(`SELECT creditDays FROM sales_customers WHERE code=? LIMIT 1`).bind(b.customerCode).first();
+          creditDays = Number(c?.creditDays || 0);
+        } catch(e){ creditDays = 0; }
       }
-    } else {
-      depositAmount = 0;
-    }
-    const totalPaid = (paymentType === "FULL") ? grandTotal : depositAmount;
-    const balance   = Math.max(0, +(grandTotal - totalPaid).toFixed(2));
 
-    // --- 5) แปลงค่าว่าเป็น JSON string (paymentPlan) หรือ null ---
-    const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
+      // --- 3) คำนวณ dueDate = deliveryDate + creditDays ---
+      const deliveryDate = (b.deliveryDate || "").toString().trim();
+      let dueDate = "";
+      if (deliveryDate) {
+        const dt = new Date(deliveryDate);
+        if (Number.isFinite(creditDays) && creditDays>0) dt.setDate(dt.getDate() + Number(creditDays));
+        dueDate = dt.toISOString().slice(0,10);
+      } else {
+        dueDate = (b.dueDate || "").toString().trim(); // ถ้าส่งมาใช้ค่านั้น
+      }
 
-    // --- 6) Insert head (ระวังจำนวน placeholder ให้ตรงกับ bind) ---
-    // Columns: soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
-    // totalBeforeDiscount, discount, grandTotal, note,
-    // deliveryDate, dueDate, paymentType, depositAmount, depositPercent, installmentCount,
-    // totalPaid, balance, paymentPlan, CreateDate
-    const insHead = await db.prepare(`
-      INSERT INTO sales_saleorders
-        (soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
-         totalBeforeDiscount, discount, grandTotal, note,
-         deliveryDate, dueDate, paymentType, depositAmount, depositPercent, installmentCount,
-         totalPaid, balance, paymentPlan, CreateDate)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-    `).bind(
-      soNo,
-      soDate,
-      (b.status || "Open"),
-      (b.customerCode || ""),
-      (b.billTo || ""),
-      (b.shipTo || ""),
-      (b.paymentTerm || ""),
-      Number(b.totalBeforeDiscount || 0),
-      Number(b.discount || 0),
-      grandTotal,
-      (b.note || ""),
-      deliveryDate || null,
-      dueDate || null,
-      paymentType,
-      (isFinite(depositAmount) ? depositAmount : 0),
-      (depositPercent != null ? depositPercent : null),
-      (installmentCount != null ? installmentCount : null),
-      totalPaid,
-      balance,
-      paymentPlanStr
-    ).run();
+      // --- 4) payment / balance calculations ---
+      const paymentType = (b.paymentType || "FULL").toString().toUpperCase(); // FULL | DEPOSIT
+      const grandTotal  = Number(b.grandTotal || 0);
+      let depositAmount = Number(b.depositAmount || 0);
+      const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
+      const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
 
-    if (!insHead || !insHead.success) {
-      return send({ error: "Insert sale order head failed", detail: insHead }, 500);
-    }
+      if (paymentType === "DEPOSIT") {
+        if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
+          depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
+        }
+      } else {
+        depositAmount = 0;
+      }
+      const totalPaid = (paymentType === "FULL") ? grandTotal : depositAmount;
+      const balance   = Math.max(0, +(grandTotal - totalPaid).toFixed(2));
 
-    // --- 7) หาค่า id ที่เพิ่ง insert (ผูก items) ---
-    const head = await db.prepare(`SELECT id FROM sales_saleorders WHERE soNo=? LIMIT 1`).bind(soNo).first();
-    const soId = head?.id || null;
+      // --- 5) แปลงค่าว่าเป็น JSON string (paymentPlan) หรือ null ---
+      const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
 
-    // --- 8) ถ้ามี items ให้ insert ทีละรายการ ---
-    if (Array.isArray(b.items) && b.items.length>0) {
-      const stmt = await db.prepare(`
-        INSERT INTO sales_saleorderitems
-          (soNo, itemCode, itemName, qty, uom, unitPrice, lineTotal, remark, CreateDate)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-      `);
-      for (const it of b.items) {
-        const qty  = Number(it.qty || 0);
-        const price= Number(it.unitPrice || 0);
-        const line = Number((it.lineTotal != null) ? it.lineTotal : +(qty * price).toFixed(2));
-        const res = await stmt.bind(
-          soNo,
-          (it.itemCode || ""),
-          (it.itemName || ""),
-          qty,
-          (it.uom || ""),
-          price,
-          line,
-          (it.remark || "")
-        ).run();
-        if (!res || !res.success) {
-          return send({ error: "Insert sale order item failed", item: it, detail: res }, 500);
+      // --- 6) Insert head (ระวังจำนวน placeholder ให้ตรงกับ bind) ---
+      // ✅✅✅ === START: โค้ดที่แก้ไข === ✅✅✅
+      const insHead = await db.prepare(`
+        INSERT INTO sales_saleorders
+          (soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
+           totalBeforeDiscount, discount, grandTotal, note,
+           deliveryDate, dueDate, paymentType, depositAmount, depositPercent, installmentCount,
+           totalPaid, balance, paymentPlan, refQuotationNo, CreateDate) 
+           /* 1. เพิ่ม refQuotationNo ที่นี่ */
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+               /* 2. เพิ่ม ? อีกหนึ่งตัวที่นี่ */
+      `).bind(
+        soNo,
+        soDate,
+        (b.status || "Open"),
+        (b.customerCode || ""),
+        (b.billTo || ""),
+        (b.shipTo || ""),
+        (b.paymentTerm || ""),
+        Number(b.totalBeforeDiscount || 0),
+        Number(b.discount || 0),
+        grandTotal,
+        (b.note || ""),
+        deliveryDate || null,
+        dueDate || null,
+        paymentType,
+        (isFinite(depositAmount) ? depositAmount : 0),
+        (depositPercent != null ? depositPercent : null),
+        (installmentCount != null ? installmentCount : null),
+        totalPaid,
+        balance,
+        paymentPlanStr,
+        (b.refQuotationNo || "") /* <-- 3. เพิ่ม (b.refQuotationNo || "") ที่นี่ */
+      ).run();
+      // ✅✅✅ === END: โค้ดที่แก้ไข === ✅✅✅
+
+      if (!insHead || !insHead.success) {
+        return send({ error: "Insert sale order head failed", detail: insHead }, 500);
+      }
+
+      // --- 7) หาค่า id ที่เพิ่ง insert (ผูก items) ---
+      const head = await db.prepare(`SELECT id FROM sales_saleorders WHERE soNo=? LIMIT 1`).bind(soNo).first();
+      const soId = head?.id || null;
+
+      // --- 8) ถ้ามี items ให้ insert ทีละรายการ ---
+      if (Array.isArray(b.items) && b.items.length>0) {
+        const stmt = await db.prepare(`
+          INSERT INTO sales_saleorderitems
+            (soNo, itemCode, itemName, qty, uom, unitPrice, lineTotal, remark, CreateDate)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        `);
+        for (const it of b.items) {
+          const qty  = Number(it.qty || 0);
+          const price= Number(it.unitPrice || 0);
+          const line = Number((it.lineTotal != null) ? it.lineTotal : +(qty * price).toFixed(2));
+          const res = await stmt.bind(
+            soNo,
+            (it.itemCode || ""),
+            (it.itemName || ""),
+            qty,
+            (it.uom || ""),
+            price,
+            line,
+            (it.remark || "")
+          ).run();
+          if (!res || !res.success) {
+            return send({ error: "Insert sale order item failed", item: it, detail: res }, 500);
+          }
         }
       }
-    }
 
-    // --- 9) ถ้าต้องการ patch Quotation ให้หลุด pending (ไม่บังคับ) ---
-    if (b.refQuotationNo) {
-      try {
-        // ถ้า table/endpoint ใช้ id มากกว่า qNo ให้ปรับโค้ดนี้
-        await db.prepare(`UPDATE sales_quotations SET confirmed = 0 WHERE qNo = ?`).bind(b.refQuotationNo).run();
-      } catch(e) { /* ไม่บล็อกการบันทึก SO หาก patch Q ล้ม */ }
-    }
+      // --- 9) ถ้าต้องการ patch Quotation ให้หลุด pending (ไม่บังคับ) ---
+      if (b.refQuotationNo) {
+        try {
+          // ถ้า table/endpoint ใช้ id มากกว่า qNo ให้ปรับโค้ดนี้
+          await db.prepare(`UPDATE sales_quotations SET confirmed = 0 WHERE qNo = ?`).bind(b.refQuotationNo).run();
+        } catch(e) { /* ไม่บล็อกการบันทึก SO หาก patch Q ล้ม */ }
+      }
 
-    // --- 10) ส่งผลลัพธ์กลับ ---
-    return send({ ok: true, soNo, soId, dueDate, balance });
-  } catch (err) {
-    console.error("POST /api/sales/orders error:", err);
-    // ถ้ามีฟังก์ชัน send ให้ใช้ ถ้าไม่มีกลับ Response ธรรมดา
-    try { return send({ error: err?.message || String(err) }, 500); }
-    catch(e){ return new Response(JSON.stringify({ error: err?.message || String(err) }), { status:500, headers:{'Content-Type':'application/json'} }); }
+      // --- 10) ส่งผลลัพธ์กลับ ---
+      return send({ ok: true, soNo, soId, dueDate, balance });
+    } catch (err) {
+      console.error("POST /api/sales/orders error:", err);
+      // ถ้ามีฟังก์ชัน send ให้ใช้ ถ้าไม่มีกลับ Response ธรรมดา
+      try { return send({ error: err?.message || String(err) }, 500); }
+      catch(e){ return new Response(JSON.stringify({ error: err?.message || String(err) }), { status:500, headers:{'Content-Type':'application/json'} }); }
+    }
   }
-}
+
+  // ✅✅✅ === START: API ใหม่สำหรับดึง Items ตอน Edit === ✅✅✅
+  // GET /api/sales/orders/items?soNo=... 
+  if (path === "sales/orders/items" && request.method === "GET") {
+    const soNo = url.searchParams.get("soNo");
+    if (!soNo) {
+      return send({ error: "soNo is required" }, 400);
+    }
+    
+    const { results } = await db.prepare(
+      `SELECT * FROM sales_saleorderitems WHERE soNo = ?`
+    ).bind(soNo).all();
+    
+    return send(results || []);
+  }
+  // ✅✅✅ === END: API ใหม่ === ✅✅✅
 
   return null;
 }
