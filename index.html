@@ -5396,26 +5396,59 @@ window.saleOrderApp = function saleOrderApp(){
       return a;
     },
 
-    // ✅✅✅ START: แก้ไขฟังก์ชัน edit() ให้เรียก this.api() ✅✅✅
+// ✅✅✅ START: แทนที่ฟังก์ชัน edit() เก่าด้วยโค้ดนี้ทั้งหมด ✅✅✅
     async edit(index, rowData) {
       this.editingIndex = index;
       
-      // --- 1. คัดลอกข้อมูล Header ทั้งหมด ---
+      // --- 1. คัดลอกข้อมูล Header (ที่มาจาก rowData) ---
       this.form.soNo = rowData.soNo;
       this.form.soDate = rowData.soDate;
       this.form.status = rowData.status;
-      this.form.customer.code = rowData.customerCode;
-      // (ถ้าต้องการ firstName/lastName ในฟอร์ม ต้องเรียก API ดึงลูกค้า)
-      // try {
-      //   const cust = await this.api(`/api/customers/${rowData.customerCode}`);
-      //   this.form.customer = { ...this.form.customer, ...cust };
-      // } catch(e) { console.warn('Failed to load full customer'); }
-      
       this.form.refQuotationNo = rowData.refQuotationNo;
-      this.form.noteGlobal = rowData.note; // (อาจจะต้องแยก note กลับ)
+      this.form.noteGlobal = rowData.note;
       this.form.deliveryDate = rowData.deliveryDate;
 
-      // --- 2. คัดลอกข้อมูล Payment ---
+      // 
+      // 
+      // ✅✅✅ START: บล็อกโค้ดใหม่สำหรับดึงข้อมูลลูกค้า ✅✅✅
+      // --- 2. คัดลอกข้อมูล Customer (ส่วนที่สำคัญ) ---
+      this.form.customer.code = rowData.customerCode; // 1. ตั้งค่า Code ก่อน
+      
+      // 2. เรียก API ดึงข้อมูลลูกค้าเต็ม (ถ้ามี customerCode)
+      if (rowData.customerCode) {
+        try {
+          // 3. ยิง API ไปที่ /api/sales/customers/[CODE] (ที่เราสร้างใน Backend)
+          const custData = await this.api(`/api/sales/customers/${encodeURIComponent(rowData.customerCode)}`);
+          
+          if (custData && !custData.error) {
+            // 4. เติมข้อมูลลูกค้าลงฟอร์ม
+            this.form.customer = {
+              code: custData.code || rowData.customerCode,
+              firstName: custData.firstName || "",
+              lastName: custData.lastName || "",
+              nationalId: custData.nationalId || "",
+              age: custData.age || null,
+              phone: custData.phone || "",
+              email: custData.email || ""
+            };
+          } else {
+            // ถ้า API ไม่มี error แต่ไม่พบลูกค้า (404)
+            this.form.customer = { ...this.form.customer, firstName: "(ไม่พบข้อมูลลูกค้า)", lastName: "", nationalId: "", age: null, phone: "", email: "" };
+          }
+        } catch (e) {
+          console.warn('Failed to load full customer', e);
+          // ถ้า API ล้มเหลว (เช่น 404 หรือ 500)
+          this.form.customer = { ...this.form.customer, firstName: "(เกิดข้อผิดพลาด)", lastName: "", nationalId: "", age: null, phone: "", email: "" };
+        }
+      } else {
+        // ถ้าแถวนี้ไม่มี customerCode ก็เคลียร์ฟอร์ม
+         this.form.customer = { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" };
+      }
+      // ✅✅✅ END: บล็อกโค้ดใหม่สำหรับดึงข้อมูลลูกค้า ✅✅✅
+      // 
+      // 
+
+      // --- 3. คัดลอกข้อมูล Payment (โค้ดเดิม) ---
       this.form.payment.method = (rowData.paymentType==='DEPOSIT'?'INST':'FULL');
       try {
         const plan = JSON.parse(rowData.paymentPlan || 'null');
@@ -5434,12 +5467,9 @@ window.saleOrderApp = function saleOrderApp(){
         }
       } catch(e) { this.form.payment.schedule = []; this.form.payment.rounds = 1; }
 
-      // --- 3. เรียก API ดึง Items (โดยใช้ this.api()) ---
+      // --- 4. เรียก API ดึง Items (โค้ดเดิม) ---
       try {
-        // ✅ แก้ไข: ใช้ this.api()
         const itemsData = await this.api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
-        
-        // แปลงกลับให้เข้ากับฟอร์ม
         this.form.items = (itemsData || []).map(it => ({
             service: it.itemCode || "",
             tooth: it.itemName || "",
@@ -5456,8 +5486,8 @@ window.saleOrderApp = function saleOrderApp(){
       this.headerLocked = true; 
       window.scrollTo(0, 0);
     },
-    // ✅✅✅ END: แก้ไขฟังก์ชัน edit() ✅✅✅
-
+    // ✅✅✅ END: แทนที่ฟังก์ชัน edit() ✅✅✅
+    
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
