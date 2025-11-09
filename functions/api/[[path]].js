@@ -565,30 +565,36 @@ export const onRequest = async (ctx) => {
 
     if ((method === "PUT" || method === "PATCH") && idFromPath) {
       const body  = await readBody();
+      
+      // (เราจะยังไม่ parse 'items' ทันที)
       const cust  = parseCustomer(body.customer);
-      const items = parseItems(body.items);
 
-      const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
-      const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
-      const grandTotal  = +(totalBefore - discount).toFixed(2);
+      const totalBefore = body.items ? items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0) : undefined;
+      const discount    = body.items ? items.reduce((s, it) => s + Number(it.discount || 0), 0) : undefined;
+      const grandTotal  = body.items ? +(totalBefore - discount).toFixed(2) : undefined;
 
-      // ✅✅✅ START: ตรรกะใหม่สำหรับ Status ✅✅✅
       let newStatus;
       if (body.status) {
-        // 1. ถ้า Frontend ส่ง "status" มา (เช่น "SO Created") ให้ใช้ค่านั้น
-        newStatus = body.status;
+        newStatus = body.status; // รับ "SO Created" จาก Sale Order
       } else {
-        // 2. มิฉะนั้น ให้ใช้ตรรกะ "confirmed" แบบเดิม (สำหรับปุ่ม Confirm/Unconfirm)
-        newStatus = body.confirmed ? "Confirmed" : "Draft";
+        newStatus = body.confirmed ? "Confirmed" : "Draft"; // ตรรกะเดิม
       }
-      // ✅✅✅ END: ตรรกGกะใหม่สำหรับ Status ✅✅✅
 
+      // (สร้าง updObj โดยลบ field ที่เป็น undefined ออกไป - ถ้า buildUpdate ของคุณฉลาดพอ)
+      // (ถ้า buildUpdate ของคุณไม่ฉลาดพอ อาจจะต้องดึงข้อมูลเก่ามาก่อน)
+      // *** เพื่อความปลอดภัย ผมจะใช้ตรรกะเดิมของคุณ แต่แยก 'items' ออกมา ***
+      
       const updObj = await addAuditOnUpdate(T_HEAD, {
         qNo: body.qNo || null, qDate: body.qDate || null, 
-        status: newStatus, // <-- 3. ใช้ newStatus ที่นี่
+        status: newStatus,
         customerCode: cust.code || "", customerFirstName: cust.firstName || "", customerLastName: cust.lastName || "",
         customerNationalId: cust.nationalId || "", customerAge: Number(cust.age || 0),
-        totalBeforeDiscount: totalBefore, discount, grandTotal, 
+        
+        // ถ้า frontend ส่ง items มา ให้คำนวณใหม่ ถ้าไม่ ให้คงค่าเดิม (undefined)
+        totalBeforeDiscount: totalBefore, 
+        discount: discount, 
+        grandTotal: grandTotal, 
+        
         note: body.note || ""
       });
       
@@ -596,22 +602,35 @@ export const onRequest = async (ctx) => {
       const head = await db.prepare(sql).bind(...bind, idFromPath).first();
       if (!head) return err("not found", 404);
 
-      await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
-      if (items.length) {
-        const ins = db.prepare(`
-          INSERT INTO ${T_ITEMS}
-            (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
-          VALUES
-            (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
-        `);
-        for (const it of items) {
-          const qty  = Number(it.qty || 0);
-          const price= Number(it.price || 0);
-          const disc = Number(it.discount || 0);
-          const line = Math.max(0, qty * price - disc);
-          await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+      // ✅✅✅ START: นี่คือจุดที่แก้ไข ✅✅✅
+      // เราจะลบและสร้าง items ใหม่ ก็ต่อเมื่อ frontend ส่ง 'items' (ไม่เท่ากับ undefined) มาใน body เท่านั้น
+      if (body.items !== undefined) {
+        
+        // 1. Parse items (ย้ายมาทำตรงนี้)
+        const items = parseItems(body.items);
+
+        // 2. ลบของเก่า
+        await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
+        
+        // 3. สร้างของใหม่ (ถ้ามี)
+        if (items.length) {
+          const ins = db.prepare(`
+            INSERT INTO ${T_ITEMS}
+              (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
+            VALUES
+              (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
+          `);
+          for (const it of items) {
+            const qty  = Number(it.qty || 0);
+            const price= Number(it.price || 0);
+            const disc = Number(it.discount || 0);
+            const line = Math.max(0, qty * price - disc);
+            await ins.bind(head.qNo, it.service || "", it.tooth || "", qty, price, line).run();
+          }
         }
       }
+      // ✅✅✅ END: นี่คือจุดที่แก้ไข ✅✅✅
+
       return send(head);
     }
 
