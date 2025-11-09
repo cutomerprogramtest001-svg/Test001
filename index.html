@@ -5439,7 +5439,7 @@ window.saleOrderApp = function saleOrderApp(){
         this._refQuotation = null;
 
         alert(`Saved SO: ${this.form.soNo}`);
-        // this.resetForm();
+        this.resetForm();
 
       } catch (saveError) {
         console.error("Save failed:", saveError);
