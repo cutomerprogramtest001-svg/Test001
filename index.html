@@ -5081,16 +5081,13 @@ window.saleOrderApp = function saleOrderApp(){
     // ===== state =====
     headerLocked: false,
     editingIndex: null,
-
     showPending: false,
     pendingRows: [],
     pendingKeyword: "",
     pendingLoading: false,
     pendingError: "",
-
     creditDays: 0,
     _refQuotation: null, // { id, qNo }
-
     list: [],
     flt: { keyword:"", from:"", to:"", minNet:null },
 
@@ -5120,10 +5117,30 @@ window.saleOrderApp = function saleOrderApp(){
 
     // ===== api() (ถูกต้องแล้ว) =====
     async api(path, options = {}) {
-      // ... (โค้ด api() ของคุณ) ...
+      const defaultHeaders = {'Content-Type': 'application/json','Accept': 'application/json',};
+      const config = { ...options, headers: { ...defaultHeaders, ...options.headers, },};
+      if (config.body && typeof config.body === 'object') {
+        config.body = JSON.stringify(config.body);
+      }
+      try {
+        const response = await fetch(path, config);
+        if (!response.ok) {
+          try {
+            const errData = await response.json();
+            throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+          } catch (e) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+        }
+        if (response.status === 204) { return null; }
+        return response.json();
+      } catch (error) {
+        console.error('Fetch API Error:', error);
+        throw error;
+      }
     },
     
-    // ... (ฟังก์ชัน utils, items calc, pending, ฯลฯ ของคุณ... ) ...
+    // ... (ฟังก์ชัน utils, items calc, pending... ถูกต้องแล้ว) ...
     fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); },
     dateShort(iso){ try{ return new Date(iso).toISOString().slice(0,10);}catch{return "";} },
     today(){ return new Date().toISOString().slice(0,10); },
@@ -5155,7 +5172,7 @@ window.saleOrderApp = function saleOrderApp(){
         this.pendingRows = [];
       }finally{ this.pendingLoading = false; }
     },
-    
+
     // ✅ 2. แก้ไข: useQuotation()
     async useQuotation(q){
       // (สำคัญมาก) ล้างฟอร์มก่อนเสมอ
@@ -5265,7 +5282,7 @@ window.saleOrderApp = function saleOrderApp(){
     statusText(ins){ return ins.paid ? `Paid ${this.dateShort(ins.paidAt)}` : (this.isOverdue(ins) ? 'Overdue' : 'Unpaid'); },
     statusBadgeClass(ins){
       return ins.paid ? 'bg-emerald-100 text-emerald-700'
-        : (this.isOverdue(ins) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600');
+        : (this.isOverdue(ins) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600');
     },
     statusDotClass(ins){
       return ins.paid ? 'bg-emerald-600'
@@ -5376,29 +5393,45 @@ window.saleOrderApp = function saleOrderApp(){
 
     // ===== Records =====
     async fetchSOList(){
-      // ... (โค้ด fetchSOList ของคุณ... ถูกต้องแล้ว) ...
+      try {
+        const u = new URL(`/api/sales/orders`, location.origin);
+        u.searchParams.set("page","1"); u.searchParams.set("size","50");
+        const rows = await this.api(u.toString());
+        this.list = rows || [];
+      } catch (e) {
+        console.error("Failed to fetch SO list", e);
+        alert("Failed to load SO list: " + e.message);
+      }
     },
-
     filteredSO(){
-      // ... (โค้ด filteredSO ของคุณ... ถูกต้องแล้ว) ...
+      let a = this.list.slice();
+      if (this.flt.keyword) {
+        const k = this.flt.keyword.toLowerCase();
+        a = a.filter(r =>
+          (r.soNo||"").toLowerCase().includes(k) ||
+          (r.customerCode||"").toLowerCase().includes(k)
+        );
+      }
+      if (this.flt.from) a = a.filter(r => !r.soDate || r.soDate >= this.flt.from);
+      if (this.flt.to)   a = a.filter(r => !r.soDate || r.soDate <= this.flt.to);
+      if (this.flt.minNet!=null && this.flt.minNet!=="") a = a.filter(r => Number(r.grandTotal||0) >= Number(this.flt.minNet));
+      return a;
     },
 
-    // ✅ 4. แก้ไข: edit() (อันนี้ถูกต้องอยู่แล้ว แต่ยืนยันว่าครบ)
+    // (edit() ถูกต้องแล้ว ไม่ต้องแก้)
     async edit(index, rowData) {
       this.editingIndex = index;
-      this.form.id = rowData.id;
+      this.form.id = rowData.id; 
       this.form.soNo = rowData.soNo;
       this.form.soDate = rowData.soDate;
-      this.form.status = rowData.status; // <-- นี่คือที่มาของ "Paid"
+      this.form.status = rowData.status; 
       this.form.refQuotationNo = rowData.refQuotationNo;
       this.form.deliveryDate = rowData.deliveryDate;
-
       const dbNote = rowData.note || ""; 
       const parts = dbNote.split(" | ");
       this.form.noteGlobal = parts[0] || "";
       this.form.symptoms = parts[1] || "";
       this.form.doctorNote = parts[2] || "";
-
       this.form.customer.code = rowData.customerCode;
       if (rowData.customerCode) {
         try {
@@ -5423,7 +5456,6 @@ window.saleOrderApp = function saleOrderApp(){
       } else {
          this.form.customer = { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" };
       }
-      
       this.form.payment.method = (rowData.paymentType==='DEPOSIT'?'INST':'FULL');
       try {
         const plan = JSON.parse(rowData.paymentPlan || 'null');
@@ -5441,10 +5473,8 @@ window.saleOrderApp = function saleOrderApp(){
           this.form.payment.rounds = 1;
         }
       } catch(e) { this.form.payment.schedule = []; this.form.payment.rounds = 1; }
-      
       this.form.totalPaid = rowData.totalPaid;
       this.form.balance = rowData.balance;
-
       try {
         const itemsData = await this.api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
         this.form.items = (itemsData || []).map(it => ({
@@ -5459,12 +5489,11 @@ window.saleOrderApp = function saleOrderApp(){
         alert('Failed to load items: ' + e.message);
         this.form.items = [];
       }
-      
       this.headerLocked = true; 
       window.scrollTo(0, 0);
     },
 
-    // ✅ 5. แก้ไข: resetForm()
+    // ✅ 4. แก้ไข: resetForm()
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
@@ -5493,3 +5522,4 @@ window.saleOrderApp = function saleOrderApp(){
 </script>
 </body>
 </html>
+
