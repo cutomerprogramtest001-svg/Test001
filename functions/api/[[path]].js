@@ -814,7 +814,8 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
       const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
       if (paymentType === "DEPOSIT") {
-        if ((depositAmount||0) <= 0 && (percent||0) > 0) {
+        // (ผมแก้ 'percent' ที่น่าจะพิมพ์ผิด เป็น 'depositPercent' ตามโค้ดข้างบน)
+        if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) { 
           depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
         }
       } else {
@@ -837,8 +838,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
       `).bind(
         soNo, soDate, 
-        // ✅ (สำคัญ) บังคับสถานะ "Unpaid" ตอนสร้างเสมอ
-        "Unpaid", 
+        "Unpaid", // ✅ 1. (สำคัญ) บังคับ "Unpaid" ตอนสร้างเสมอ
         (b.customerCode || ""), (b.billTo || ""),
         (b.shipTo || ""), (b.paymentTerm || ""), Number(b.totalBeforeDiscount || 0),
         Number(b.discount || 0), grandTotal, (b.note || ""),
@@ -874,7 +874,8 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       }
 
       // --- 10) ส่งผลลัพธ์กลับ ---
-      return send({ ok: true, soNo, soId, dueDate, balance, totalPaid, status: "Unpaid" });
+      // ✅ 2. (สำคัญ) ส่ง status: "Unpaid" กลับไปให้ Frontend ด้วย
+      return send({ ok: true, soNo, soId, dueDate, balance, totalPaid, status: "Unpaid" }); 
       
     } catch (err) {
       console.error("POST /api/sales/orders error:", err);
@@ -883,8 +884,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     }
   }
 
-  // ✅✅✅ START: API เส้นใหม่สำหรับ "UPDATE" ✅✅✅
-  // PUT /api/sales/orders/[id]
+  // PUT /api/sales/orders/[id] (UPDATE)
   const parts = path.split('/');
   if (path.startsWith("sales/orders/") && parts.length === 3 && request.method === "PUT") {
     const id = parts[2]; // นี่คือ ID (Primary Key)
@@ -918,8 +918,6 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       }
 
       // --- 4) payment / balance (อัปเดต) ---
-      // (ตรรกะนี้อาจจะต้องซับซ้อนกว่านี้ ถ้ามีการรับเงิน)
-      // (แต่สำหรับตอนนี้ เราจะเชื่อ grandTotal ที่คำนวณใหม่ และ totalPaid/balance จากฟอร์ม)
       const paymentType = (b.paymentType || "FULL").toString().toUpperCase();
       const grandTotal  = Number(b.grandTotal || 0);
       let depositAmount = Number(b.depositAmount || 0);
@@ -933,10 +931,9 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         depositAmount = 0;
       }
       
-      // (สำคัญ) ใช้ totalPaid และ balance ที่ส่งมาจากฟอร์ม
       const totalPaid = Number(b.totalPaid || 0); 
-      const balance   = Number(b.balance || 0);
-      // (ในอนาคต: ควรคำนวณ balance = grandTotal - totalPaid)
+      // ✅ (แก้ไข Logic) คำนวณ Balance ใหม่เสมอ
+      const balance   = +(grandTotal - totalPaid).toFixed(2);
 
       // --- 5) paymentPlan ---
       const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
@@ -988,7 +985,8 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       }
 
       // --- 10) ส่งผลลัพธ์กลับ ---
-      return send({ ok: true, soNo: soNo, soId: id, dueDate, balance, totalPaid });
+      // (ส่ง status กลับไปด้วย)
+      return send({ ok: true, soNo: soNo, soId: id, dueDate, balance, totalPaid, status: b.status });
       
     } catch (err) {
       console.error("PUT /api/sales/orders error:", err);
@@ -996,8 +994,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       catch(e){ return new Response(JSON.stringify({ error: err?.message || String(err) }), { status:500, headers:{'Content-Type':'application/json'} }); }
     }
   }
-  // ✅✅✅ END: API เส้นใหม่สำหรับ "UPDATE" ✅✅✅
-
+  
   // GET /api/sales/orders/items?soNo=... (อันนี้จากรอบที่แล้ว)
   if (path === "sales/orders/items" && request.method === "GET") {
     const soNo = url.searchParams.get("soNo");
@@ -1012,7 +1009,6 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
 
   return null;
 }
-
   // ----- fallback -----
   return err(`No route for: ${seg.join("/")}`, 404);
 };
