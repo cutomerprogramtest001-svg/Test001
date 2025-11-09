@@ -5443,23 +5443,30 @@ window.saleOrderApp = function saleOrderApp(){
       this.form.soDate = rowData.soDate;
       this.form.status = rowData.status;
       this.form.refQuotationNo = rowData.refQuotationNo;
-      this.form.noteGlobal = rowData.note;
       this.form.deliveryDate = rowData.deliveryDate;
 
-      // 
-      // 
-      // ✅✅✅ START: บล็อกโค้ดใหม่สำหรับดึงข้อมูลลูกค้า ✅✅✅
-      // --- 2. คัดลอกข้อมูล Customer (ส่วนที่สำคัญ) ---
-      this.form.customer.code = rowData.customerCode; // 1. ตั้งค่า Code ก่อน
-      
-      // 2. เรียก API ดึงข้อมูลลูกค้าเต็ม (ถ้ามี customerCode)
+      //
+      //
+      // ✅✅✅ START: บล็อกโค้ดใหม่สำหรับ "แยก" Note / Symptoms ✅✅✅
+      // --- 2. แยก Note / Symptoms / Doctor Note ---
+      // (เราจะแยกข้อความที่รวมกันไว้ใน rowData.note กลับออกมา)
+      const dbNote = rowData.note || ""; 
+      const parts = dbNote.split(" | "); // (ใช้ตัวแยก " | " แบบเดียวกับตอน save)
+
+      // (ตรวจสอบว่าฟอร์มของคุณมี 3 ช่องนี้)
+      this.form.noteGlobal = parts[0] || "";    // ส่วนที่ 1 คือ หมายเหตุ
+      this.form.symptoms = parts[1] || "";       // ส่วนที่ 2 คือ อาการ
+      this.form.doctorNote = parts[2] || "";     // ส่วนที่ 3 คือ Doctor Note
+      // ✅✅✅ END: บล็อกโค้ดใหม่สำหรับ "แยก" Note / Symptoms ✅✅✅
+      //
+      //
+
+      // --- 3. คัดลอกข้อมูล Customer (โค้ดเดิมที่แก้ไปแล้ว) ---
+      this.form.customer.code = rowData.customerCode;
       if (rowData.customerCode) {
         try {
-          // 3. ยิง API ไปที่ /api/sales/customers/[CODE] (ที่เราสร้างใน Backend)
           const custData = await this.api(`/api/sales/customers/${encodeURIComponent(rowData.customerCode)}`);
-          
           if (custData && !custData.error) {
-            // 4. เติมข้อมูลลูกค้าลงฟอร์ม
             this.form.customer = {
               code: custData.code || rowData.customerCode,
               firstName: custData.firstName || "",
@@ -5470,23 +5477,17 @@ window.saleOrderApp = function saleOrderApp(){
               email: custData.email || ""
             };
           } else {
-            // ถ้า API ไม่มี error แต่ไม่พบลูกค้า (404)
             this.form.customer = { ...this.form.customer, firstName: "(ไม่พบข้อมูลลูกค้า)", lastName: "", nationalId: "", age: null, phone: "", email: "" };
           }
         } catch (e) {
           console.warn('Failed to load full customer', e);
-          // ถ้า API ล้มเหลว (เช่น 404 หรือ 500)
           this.form.customer = { ...this.form.customer, firstName: "(เกิดข้อผิดพลาด)", lastName: "", nationalId: "", age: null, phone: "", email: "" };
         }
       } else {
-        // ถ้าแถวนี้ไม่มี customerCode ก็เคลียร์ฟอร์ม
          this.form.customer = { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" };
       }
-      // ✅✅✅ END: บล็อกโค้ดใหม่สำหรับดึงข้อมูลลูกค้า ✅✅✅
-      // 
-      // 
-
-      // --- 3. คัดลอกข้อมูล Payment (โค้ดเดิม) ---
+      
+      // --- 4. คัดลอกข้อมูล Payment (โค้ดเดิม) ---
       this.form.payment.method = (rowData.paymentType==='DEPOSIT'?'INST':'FULL');
       try {
         const plan = JSON.parse(rowData.paymentPlan || 'null');
@@ -5505,7 +5506,7 @@ window.saleOrderApp = function saleOrderApp(){
         }
       } catch(e) { this.form.payment.schedule = []; this.form.payment.rounds = 1; }
 
-      // --- 4. เรียก API ดึง Items (โค้ดเดิม) ---
+      // --- 5. เรียก API ดึง Items (โค้ดเดิม) ---
       try {
         const itemsData = await this.api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
         this.form.items = (itemsData || []).map(it => ({
@@ -5526,6 +5527,7 @@ window.saleOrderApp = function saleOrderApp(){
     },
     // ✅✅✅ END: แทนที่ฟังก์ชัน edit() ✅✅✅
 
+    
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
