@@ -565,60 +565,72 @@ export const onRequest = async (ctx) => {
 
     if ((method === "PUT" || method === "PATCH") && idFromPath) {
       const body  = await readBody();
-      
-      // (เราจะยังไม่ parse 'items' ทันที)
       const cust  = parseCustomer(body.customer);
+      
+      // --- ✅✅✅ START: โค้ดที่แก้ไข (ตรรกะใหม่) ✅✅✅ ---
+      
+      let items = undefined;
+      let totalBefore = undefined;
+      let discount = undefined;
+      let grandTotal = undefined;
 
-      const totalBefore = body.items ? items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0) : undefined;
-      const discount    = body.items ? items.reduce((s, it) => s + Number(it.discount || 0), 0) : undefined;
-      const grandTotal  = body.items ? +(totalBefore - discount).toFixed(2) : undefined;
-
+      // 1. ตรวจสอบว่า Frontend ส่ง "items" มาใน body หรือไม่
+      if (body.items !== undefined) {
+        // ถ้าใช่ (เช่น กด Save) ให้ Parse และคำนวณยอดรวมใหม่
+        items = parseItems(body.items);
+        totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+        discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+        grandTotal  = +(totalBefore - discount).toFixed(2);
+      }
+      // (ถ้า body.items เป็น undefined = Frontend ไม่ได้ส่งมา (เช่น กด Confirm)
+      // เราก็จะปล่อยให้ตัวแปร 4 ตัวบนเป็น undefined)
+      
+      // --- ตรรกะ Status (อันนี้ถูกต้องอยู่แล้ว) ---
       let newStatus;
       if (body.status) {
-        newStatus = body.status; // รับ "SO Created" จาก Sale Order
+        newStatus = body.status; // รับ "SO Created"
       } else {
-        newStatus = body.confirmed ? "Confirmed" : "Draft"; // ตรรกะเดิม
+        newStatus = body.confirmed ? "Confirmed" : "Draft"; // รับจากปุ่ม Confirm
       }
 
-      // (สร้าง updObj โดยลบ field ที่เป็น undefined ออกไป - ถ้า buildUpdate ของคุณฉลาดพอ)
-      // (ถ้า buildUpdate ของคุณไม่ฉลาดพอ อาจจะต้องดึงข้อมูลเก่ามาก่อน)
-      // *** เพื่อความปลอดภัย ผมจะใช้ตรรกะเดิมของคุณ แต่แยก 'items' ออกมา ***
-      
+      // --- สร้าง Object สำหรับอัปเดต ---
       const updObj = await addAuditOnUpdate(T_HEAD, {
-        qNo: body.qNo || null, qDate: body.qDate || null, 
+        qNo: body.qNo || null, 
+        qDate: body.qDate || null, 
         status: newStatus,
-        customerCode: cust.code || "", customerFirstName: cust.firstName || "", customerLastName: cust.lastName || "",
-        customerNationalId: cust.nationalId || "", customerAge: Number(cust.age || 0),
+        customerCode: cust.code || "", 
+        customerFirstName: cust.firstName || "", 
+        customerLastName: cust.lastName || "",
+        customerNationalId: cust.nationalId || "", 
+        customerAge: Number(cust.age || 0),
         
-        // ถ้า frontend ส่ง items มา ให้คำนวณใหม่ ถ้าไม่ ให้คงค่าเดิม (undefined)
+        // (สำคัญมาก) ถ้า grandTotal เป็น undefined 
+        // ฟังก์ชัน buildUpdate ของคุณ (ผมหวังว่า) จะข้าม field นี้ไป
+        // ทำให้ยอดรวมเก่าไม่ถูกเขียนทับเป็น 0
         totalBeforeDiscount: totalBefore, 
         discount: discount, 
         grandTotal: grandTotal, 
         
-        note: body.note || ""
+        note: body.note || "" // (อันนี้ถูกต้องอยู่แล้ว)
       });
       
+      // --- อัปเดตตาราง Head (Quotation) ---
       const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
       const head = await db.prepare(sql).bind(...bind, idFromPath).first();
       if (!head) return err("not found", 404);
 
-      // ✅✅✅ START: นี่คือจุดที่แก้ไข ✅✅✅
-      // เราจะลบและสร้าง items ใหม่ ก็ต่อเมื่อ frontend ส่ง 'items' (ไม่เท่ากับ undefined) มาใน body เท่านั้น
-      if (body.items !== undefined) {
+      // --- อัปเดตตาราง Items (ถ้ามี items ส่งมาเท่านั้น) ---
+      if (items !== undefined) { 
         
-        // 1. Parse items (ย้ายมาทำตรงนี้)
-        const items = parseItems(body.items);
-
-        // 2. ลบของเก่า
+        // ลบของเก่า
         await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
         
-        // 3. สร้างของใหม่ (ถ้ามี)
+        // เพิ่มของใหม่ (ถ้ามี)
         if (items.length) {
           const ins = db.prepare(`
             INSERT INTO ${T_ITEMS}
               (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
-            VALUES
-              (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
           `);
           for (const it of items) {
             const qty  = Number(it.qty || 0);
@@ -629,11 +641,10 @@ export const onRequest = async (ctx) => {
           }
         }
       }
-      // ✅✅✅ END: นี่คือจุดที่แก้ไข ✅✅✅
+      // --- ✅✅✅ END: โค้ดที่แก้ไข ✅✅✅ ---
 
       return send(head);
     }
-
 
     if (method === "DELETE" && idFromPath) {
       const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
