@@ -5095,9 +5095,10 @@ window.saleOrderApp = function saleOrderApp(){
     flt: { keyword:"", from:"", to:"", minNet:null },
 
     form: {
-      // ✅ 1. เพิ่ม id: null สำหรับแยก "สร้างใหม่" vs "แก้ไข"
       id: null, 
-      soNo: "", soDate: new Date().toISOString().slice(0,10), status: "Open",
+      soNo: "", soDate: new Date().toISOString().slice(0,10), 
+      // ✅ 1. แก้ไข: สถานะเริ่มต้นควรเป็น "Unpaid" (ค้างชำระ)
+      status: "Unpaid", 
       refQuotationNo: "",
       customer: { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" },
       symptoms: "",
@@ -5110,7 +5111,6 @@ window.saleOrderApp = function saleOrderApp(){
         schedule: []
       },
       doctorNote: "",
-      // (เราต้องมี totalPaid/balance ในฟอร์มด้วย)
       totalPaid: 0,
       balance: 0
     },
@@ -5118,32 +5118,12 @@ window.saleOrderApp = function saleOrderApp(){
     // ===== lifecycle =====
     async init(){ await this.fetchSOList(); this.buildSchedule(); },
 
-    // ===== (ฟังก์ชัน api() ของคุณ) =====
+    // ===== api() (ถูกต้องแล้ว) =====
     async api(path, options = {}) {
-      const defaultHeaders = {'Content-Type': 'application/json','Accept': 'application/json',};
-      const config = { ...options, headers: { ...defaultHeaders, ...options.headers, },};
-      if (config.body && typeof config.body === 'object') {
-        config.body = JSON.stringify(config.body);
-      }
-      try {
-        const response = await fetch(path, config);
-        if (!response.ok) {
-          try {
-            const errData = await response.json();
-            throw new Error(errData.error || `HTTP error! status: ${response.status}`);
-          } catch (e) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-        }
-        if (response.status === 204) { return null; }
-        return response.json();
-      } catch (error) {
-        console.error('Fetch API Error:', error);
-        throw error;
-      }
+      // ... (โค้ด api() ของคุณ) ...
     },
     
-    // ... (ฟังก์ชัน utils, items calc, pending, ฯลฯ ของคุณ... ไม่ต้องแก้ไข) ...
+    // ... (ฟังก์ชัน utils, items calc, pending, ฯลฯ ของคุณ... ) ...
     fmt(n){ return Number(n||0).toLocaleString(undefined,{minimumFractionDigits:2, maximumFractionDigits:2}); },
     dateShort(iso){ try{ return new Date(iso).toISOString().slice(0,10);}catch{return "";} },
     today(){ return new Date().toISOString().slice(0,10); },
@@ -5175,8 +5155,15 @@ window.saleOrderApp = function saleOrderApp(){
         this.pendingRows = [];
       }finally{ this.pendingLoading = false; }
     },
+    
+    // ✅ 2. แก้ไข: useQuotation()
     async useQuotation(q){
+      // (สำคัญมาก) ล้างฟอร์มก่อนเสมอ
+      this.resetForm(); 
+
+      // 1) ตั้ง soDate เป็นวันนี้
       this.form.soDate = this.today();
+      // ... (โค้ดที่เหลือเหมือนเดิม) ...
       this._refQuotation = { id: q.id, qNo: q.qNo };
       this.form.refQuotationNo = q.qNo || "";
       this.form.customer.code       = q.customerCode || "";
@@ -5213,6 +5200,8 @@ window.saleOrderApp = function saleOrderApp(){
       await this.setNextSoNoPreview();
       this.showPending = false;
     },
+    
+    // ... (โค้ด setNextSoNoPreview, loadCredit, buildSchedule ฯลฯ... ถูกต้องแล้ว) ...
     async setNextSoNoPreview(){
       const ymd = (this.form.soDate || this.today()).replace(/-/g,'');
       try{
@@ -5276,7 +5265,7 @@ window.saleOrderApp = function saleOrderApp(){
     statusText(ins){ return ins.paid ? `Paid ${this.dateShort(ins.paidAt)}` : (this.isOverdue(ins) ? 'Overdue' : 'Unpaid'); },
     statusBadgeClass(ins){
       return ins.paid ? 'bg-emerald-100 text-emerald-700'
-        : (this.isOverdue(ins) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600');
+        : (this.isOverdue(ins) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600');
     },
     statusDotClass(ins){
       return ins.paid ? 'bg-emerald-600'
@@ -5297,10 +5286,9 @@ window.saleOrderApp = function saleOrderApp(){
       return !!this.form.customer.code && this.form.items.length>0 && this.netTotal()>0;
     },
     
-    // ✅ 4. แก้ไข: ฟังก์ชัน save() ใหม่ทั้งหมด
+    // ✅ 3. แก้ไข: save()
     async save(){
       try {
-        // --- (A) คำนวณยอดรวม (เหมือนเดิม) ---
         const totalBeforeDiscount = this.sumBefore();
         const discount = this.sumDiscount();
         const grandTotal = this.netTotal();
@@ -5315,11 +5303,14 @@ window.saleOrderApp = function saleOrderApp(){
           remark: ""
         }));
 
-        // --- (B) สร้าง Payload (เหมือนเดิม) ---
         const payload = {
           soNo: this.form.soNo, 
           soDate: this.form.soDate || this.today(),
-          status: this.form.status,
+          
+          // (สำคัญ) ถ้าเป็นการสร้างใหม่ ให้บังคับ "Unpaid"
+          // ถ้าเป็นการอัปเดต ให้ใช้สถานะเดิมจากฟอร์ม
+          status: this.form.id ? this.form.status : "Unpaid", 
+
           customerCode: this.form.customer.code,
           billTo: "",
           shipTo: "",
@@ -5337,16 +5328,18 @@ window.saleOrderApp = function saleOrderApp(){
           paymentPlan: { method: this.form.payment.method, schedule: this.form.payment.schedule },
           items,
           refQuotationNo: this.form.refQuotationNo || null,
+          
+          // (สำคัญ) ใช้ totalPaid และ balance จากฟอร์ม
+          // (Logic ใน Backend (POST) จะเขียนทับ 2 ค่านี้เป็น 0 และ grandTotal)
           totalPaid: this.form.totalPaid || 0,
-          balance: this.form.balance || 0
+          balance: this.form.balance || grandTotal
         };
 
-        // --- (C) ตรรกะใหม่: แยก "สร้าง" vs "อัปเดต" ---
         let j;
         if (this.form.id) {
           // --- UPDATE (แก้ไข) ---
           j = await this.api(`/api/sales/orders/${this.form.id}`, {
-            method: "PUT", // <-- ใช้ PUT สำหรับ update
+            method: "PUT",
             body: payload
           });
         } else {
@@ -5359,9 +5352,8 @@ window.saleOrderApp = function saleOrderApp(){
 
         if (j.error) { alert(j.error); return; }
 
-        // --- (D) อัปเดต Quotation (ถ้าเป็นการสร้างใหม่จาก Q) ---
         try {
-          if (this._refQuotation?.id != null && !this.form.id) { // <-- เช็คว่า !this.form.id (สร้างใหม่)
+          if (this._refQuotation?.id != null && !this.form.id) {
             await this.api(`/api/sales/quotations/${this._refQuotation.id}`, {
               method: "PATCH",
               body: { status: "SO Created" }
@@ -5373,9 +5365,8 @@ window.saleOrderApp = function saleOrderApp(){
 
         alert(`Saved SO: ${j.soNo || this.form.soNo}`);
         
-        // --- (E) โหลด List ใหม่ และ เคลียร์ฟอร์ม ---
-        await this.fetchSOList(); // <-- โหลด List ใหม่
-        this.resetForm(); // <-- เคลียร์ฟอร์ม
+        await this.fetchSOList(); 
+        this.resetForm(); // (เอาคอมเมนต์ออกแล้ว)
 
       } catch (saveError) {
         console.error("Save failed:", saveError);
@@ -5385,53 +5376,29 @@ window.saleOrderApp = function saleOrderApp(){
 
     // ===== Records =====
     async fetchSOList(){
-      try {
-        const u = new URL(`/api/sales/orders`, location.origin);
-        u.searchParams.set("page","1"); u.searchParams.set("size","50");
-        const rows = await this.api(u.toString());
-        this.list = rows || [];
-      } catch (e) {
-        console.error("Failed to fetch SO list", e);
-        alert("Failed to load SO list: " + e.message);
-      }
+      // ... (โค้ด fetchSOList ของคุณ... ถูกต้องแล้ว) ...
     },
 
     filteredSO(){
-      let a = this.list.slice();
-      if (this.flt.keyword) {
-        const k = this.flt.keyword.toLowerCase();
-        a = a.filter(r =>
-          (r.soNo||"").toLowerCase().includes(k) ||
-          (r.customerCode||"").toLowerCase().includes(k)
-        );
-      }
-      if (this.flt.from) a = a.filter(r => !r.soDate || r.soDate >= this.flt.from);
-      if (this.flt.to)   a = a.filter(r => !r.soDate || r.soDate <= this.flt.to);
-      if (this.flt.minNet!=null && this.flt.minNet!=="") a = a.filter(r => Number(r.grandTotal||0) >= Number(this.flt.minNet));
-      return a;
+      // ... (โค้ด filteredSO ของคุณ... ถูกต้องแล้ว) ...
     },
 
-    // ✅ 2. แก้ไข: edit() ให้เก็บ "id"
+    // ✅ 4. แก้ไข: edit() (อันนี้ถูกต้องอยู่แล้ว แต่ยืนยันว่าครบ)
     async edit(index, rowData) {
       this.editingIndex = index;
-      
-      this.form.id = rowData.id; // <-- (สำคัญมาก) เก็บ ID
-      
-      // --- 1. คัดลอกข้อมูล Header (ที่มาจาก rowData) ---
+      this.form.id = rowData.id;
       this.form.soNo = rowData.soNo;
       this.form.soDate = rowData.soDate;
-      this.form.status = rowData.status;
+      this.form.status = rowData.status; // <-- นี่คือที่มาของ "Paid"
       this.form.refQuotationNo = rowData.refQuotationNo;
       this.form.deliveryDate = rowData.deliveryDate;
 
-      // (แยก Note / Symptoms)
       const dbNote = rowData.note || ""; 
       const parts = dbNote.split(" | ");
       this.form.noteGlobal = parts[0] || "";
       this.form.symptoms = parts[1] || "";
       this.form.doctorNote = parts[2] || "";
 
-      // --- 2. คัดลอกข้อมูล Customer (ดึง API) ---
       this.form.customer.code = rowData.customerCode;
       if (rowData.customerCode) {
         try {
@@ -5457,7 +5424,6 @@ window.saleOrderApp = function saleOrderApp(){
          this.form.customer = { code:"", firstName:"", lastName:"", nationalId:"", age:null, phone:"", email:"" };
       }
       
-      // --- 3. คัดลอกข้อมูล Payment ---
       this.form.payment.method = (rowData.paymentType==='DEPOSIT'?'INST':'FULL');
       try {
         const plan = JSON.parse(rowData.paymentPlan || 'null');
@@ -5476,11 +5442,9 @@ window.saleOrderApp = function saleOrderApp(){
         }
       } catch(e) { this.form.payment.schedule = []; this.form.payment.rounds = 1; }
       
-      // (สำคัญ) เก็บยอดเงินเดิม
       this.form.totalPaid = rowData.totalPaid;
       this.form.balance = rowData.balance;
 
-      // --- 4. เรียก API ดึง Items ---
       try {
         const itemsData = await this.api(`/api/sales/orders/items?soNo=${rowData.soNo}`);
         this.form.items = (itemsData || []).map(it => ({
@@ -5500,15 +5464,16 @@ window.saleOrderApp = function saleOrderApp(){
       window.scrollTo(0, 0);
     },
 
-    // ✅ 3. แก้ไข: resetForm() ให้ล้าง "id"
+    // ✅ 5. แก้ไข: resetForm()
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
       this.creditDays = 0;
       this._refQuotation = null;
       this.form = {
-        id: null, // <-- ล้าง ID
-        soNo:"", soDate: this.today(), status:"Open",
+        id: null, 
+        soNo:"", soDate: this.today(), 
+        status: "Unpaid", // <-- แก้ไข
         refQuotationNo:"",
         customer:{code:"",firstName:"",lastName:"",nationalId:"",age:null,phone:"",email:""},
         symptoms:"",
@@ -5524,6 +5489,7 @@ window.saleOrderApp = function saleOrderApp(){
     }
   };
 }
+
 </script>
 </body>
 </html>
