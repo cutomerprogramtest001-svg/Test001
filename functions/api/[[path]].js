@@ -112,6 +112,11 @@ export const onRequest = async (ctx) => {
     const r = await saleOrdersRouter({ request, url, path, db, send, err });
     if (r) return r;
   }
+  
+  {
+    const r = await saleCustomersRouter({ request, url, path, db, send, err });
+    if (r) return r;
+  }
 
   // ===== Common helpers ที่ส่วนอื่นต้องใช้ =====
   const seg = path.split('/').filter(Boolean);           // ["hr","employees",":id"]
@@ -646,6 +651,42 @@ async function quotationsRouter({ request, url, path, db, send, err }) {
 
   return null;
 }
+
+// ===================== SALE CUSTOMERS ROUTER =====================
+// (ใช้สำหรับดึงข้อมูลลูกค้าตอนกด Edit)
+async function saleCustomersRouter({ request, url, path, db, send, err }) {
+  if (!path.startsWith("sales/customers")) return null;
+
+  // GET /api/sales/customers/[code]
+  // (ตัวแปร path ที่ส่งเข้ามาจะหน้าตาแบบนี้: "sales/customers/CUST-001")
+  const parts = path.split('/');
+  
+  // เราสนใจ path ที่มี 3 ส่วน [sales, customers, CUST-001] และเป็น GET
+  if (parts.length === 3 && request.method === 'GET') { 
+    const code = decodeURIComponent(parts[2]); // ดึงรหัสลูกค้า (CUST-001) ออกมา
+    
+    try {
+      // ค้นหาลูกค้าคนนี้ในตาราง sales_customers
+      const customer = await db.prepare(
+        `SELECT code, firstName, lastName, nationalId, age, phone, email 
+         FROM sales_customers WHERE code = ?`
+      ).bind(code).first();
+      
+      if (customer) {
+        return send(customer); // ส่งออบเจ็กต์ลูกค้ากลับไป
+      } else {
+        // ถ้าไม่เจอ
+        return send({ error: "Customer not found" }, 404);
+      }
+    } catch (e) {
+      // ถ้า database error
+      return send({ error: e.message }, 500);
+    }
+  }
+  
+  return null; // ไม่ใช่ path ที่ router นี้รู้จัก
+}
+
 // ===================== SALE ORDERS ROUTER =====================
 async function saleOrdersRouter({ request, url, path, db, send, err }) {
   if (!path.startsWith("sales/orders")) return null;
