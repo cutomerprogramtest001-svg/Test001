@@ -4384,7 +4384,7 @@ window.attendanceApp = function attendanceApp(){
 })();
 
 // ===== Sales » Customer =====
-window.customerApp = function customerApp(){
+  window.customerApp = function customerApp(){
   // --- mapper helpers (scope ภายใน) ---
   const fromRow = (row = {}) => {
     let payload = {};
@@ -4780,7 +4780,7 @@ window.customerApp = function customerApp(){
   };
 };
   // ===== Sales » Quotation (READY) =====
-  window.quotationApp = function quotationApp(){
+window.quotationApp = function quotationApp(){
     return {
       // --- state ---
       quotes: [],
@@ -4808,6 +4808,7 @@ window.customerApp = function customerApp(){
         qDate: "",
         customer: { code:"", firstName:"", lastName:"", nationalId:"", age:"" },
         items: [],
+        symptoms: "", // ✅ 1. เพิ่ม state สำหรับ "อาการ"
         note: "",
         confirmed: false
       },
@@ -4822,6 +4823,7 @@ window.customerApp = function customerApp(){
         this.previewQuotationNo();
       },
       async reload(){
+        // (เราต้องมีฟังก์ชัน api() อยู่ข้างนอก หรือย้ายเข้ามาข้างใน)
         const res = await api('/api/sales/quotations');
         this.quotes = Array.isArray(res) ? res : (res?.data || res?.results || []);
       },
@@ -4919,29 +4921,33 @@ window.customerApp = function customerApp(){
       canConfirm(){ return this.form.qNo && this.form.customer && this.form.customer.code && (this.form.items||[]).length; },
 
       async confirmQuote(){
-        // ต้องมีเลข, ลูกค้า, และรายการอย่างน้อย 1 รายการ
         if(!this.canConfirm()){ this.toast("กรุณากรอกข้อมูลให้ครบและมีรายการอย่างน้อย 1 รายการ"); return; }
 
-        // สร้าง payload โดยตั้งค่า confirmed=true
+        // ✅ 3. แก้ไข: รวม Symptoms และ Note ก่อนส่ง
+        const combinedNote = [
+          this.form.symptoms ? `อาการ: ${this.form.symptoms}` : '',
+          this.form.note ? `หมายเหตุ: ${this.form.note}` : ''
+        ].filter(Boolean).join("\n---\n"); // ใช้ \n---\n เป็นตัวคั่น
+
         const payload = {
           ...this.form,
+          note: combinedNote,       // <-- ใช้ note ที่รวมแล้ว
+          symptoms: undefined,    // <-- ไม่ส่ง symptoms แยก
           confirmed: true,
           customer: JSON.stringify(this.form.customer||{}),
           items: JSON.stringify(this.form.items||[])
         };
 
         if(this.editingIndex === null){
-          // ยังไม่เคยบันทึก -> สร้างใหม่แบบ Confirmed
           await api('/api/sales/quotations', { method:'POST', body: payload });
         }else{
-          // มีเรคคอร์ดอยู่แล้ว -> อัปเดตเป็น Confirmed
           const row = this.quotes[this.editingIndex];
           await api(`/api/sales/quotations/${row.id}`, { method:'PUT', body: payload });
         }
 
         await this.reload();
         this.toast("Confirmed & Saved.");
-        this.resetForm();   // ✅ ล้างฟอร์มหลัง Confirm
+        this.resetForm();
       },
 
       unconfirmQuote(){
@@ -4957,7 +4963,10 @@ window.customerApp = function customerApp(){
         this.form = {
           id:null, qNo:"", qDate: today,
           customer:{ code:"", firstName:"", lastName:"", nationalId:"", age:"" },
-          items:[], note:"", confirmed:false
+          items:[],
+          symptoms: "", // ✅ 2. เพิ่ม symptoms ใน resetForm
+          note:"",
+          confirmed:false
         };
         this.customerSearch = "";
         this.previewQuotationNo();
@@ -4969,10 +4978,30 @@ window.customerApp = function customerApp(){
         const id = this.quotes[i].id;
         await this.editById(id);
       },
+      
+      // ✅ 5. แก้ไข: editById ให้ "แยก" note กลับมาใส่ 2 ช่อง
       async editById(id){
         if(!id) return;
         const full = await api(`/api/sales/quotations/${id}`);
-        // map กลับเข้าฟอร์มให้ครบ และคอนเวิร์ตเป็นตัวเลข
+        
+        // --- ตรรกะการแยก note ---
+        const dbNote = full.note || "";
+        let symptoms = "";
+        let note = "";
+        
+        if (dbNote.includes("\n---\n")) {
+          const parts = dbNote.split("\n---\n");
+          symptoms = parts[0]?.replace(/^อาการ: /, '') || ""; // เอา "อาการ: " ออก
+          note = parts[1]?.replace(/^หมายเหตุ: /, '') || ""; // เอา "หมายเหตุ: " ออก
+        } else if (dbNote.startsWith("อาการ: ")) {
+          symptoms = dbNote.replace(/^อาการ: /, '');
+        } else if (dbNote.startsWith("หมายเหตุ: ")) {
+          note = dbNote.replace(/^หมายเหตุ: /, '');
+        } else {
+          note = dbNote; // ถ้าเป็นข้อมูลเก่า หรือไม่ตรงแพทเทิร์น ให้ใส่ใน note
+        }
+        // --- จบตรรกะ ---
+        
         this.form = {
           id,
           qNo      : full.qNo || "",
@@ -4985,7 +5014,8 @@ window.customerApp = function customerApp(){
                        price:   Number(it.price||0),
                        discount:Number(it.discount||0)
                      })) : [],
-          note     : full.note || "",
+          symptoms : symptoms, // <-- ใช้ symptoms ที่แยกมา
+          note     : note,     // <-- ใช้ note ที่แยกมา
           confirmed: (full.status||"") === "Confirmed"
         };
         this.customerSearch = this.form.customer.code
@@ -4993,7 +5023,6 @@ window.customerApp = function customerApp(){
           : "";
         this.showSug = false;
 
-        // เซ็ต editingIndex ให้ Save รู้ว่าเป็นการอัปเดต
         const idx = (this.quotes||[]).findIndex(r=>String(r.id)===String(id));
         this.editingIndex = idx>=0 ? idx : null;
 
@@ -5001,15 +5030,24 @@ window.customerApp = function customerApp(){
       },
 
       // --- save/delete ---
+      // ✅ 4. แก้ไข: save() ให้ "รวม" note
       async save(){
-        // validate ง่าย ๆ
         if(!this.form.qDate){ this.toast("กรุณาระบุวันที่ใบเสนอราคา"); return; }
         if(!this.form.qNo){ this.previewQuotationNo(); }
         if(!this.form.customer || !this.form.customer.code){ this.toast("กรุณาเลือกลูกค้า"); return; }
         if(!this.form.items.length){ this.toast("กรุณาเพิ่มรายการอย่างน้อย 1 รายการ"); return; }
 
+        // --- ตรรกะการรวม note ---
+        const combinedNote = [
+          this.form.symptoms ? `อาการ: ${this.form.symptoms}` : '',
+          this.form.note ? `หมายเหตุ: ${this.form.note}` : ''
+        ].filter(Boolean).join("\n---\n");
+        // --- จบตรรกะ ---
+
         const payload = {
           ...this.form,
+          note: combinedNote,       // <-- ใช้ note ที่รวมแล้ว
+          symptoms: undefined,    // <-- ไม่ส่ง symptoms แยก
           customer: JSON.stringify(this.form.customer||{}),
           items: JSON.stringify(this.form.items||[])
         };
@@ -5022,7 +5060,7 @@ window.customerApp = function customerApp(){
         }
         await this.reload();
         this.toast("Saved.");
-        this.resetForm();   // ✅ ล้างฟอร์มหลัง Save/Update
+        this.resetForm();
       },
 
       async del(i){
@@ -5487,7 +5525,7 @@ window.saleOrderApp = function saleOrderApp(){
       window.scrollTo(0, 0);
     },
     // ✅✅✅ END: แทนที่ฟังก์ชัน edit() ✅✅✅
-    
+
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
