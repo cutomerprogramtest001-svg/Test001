@@ -5204,26 +5204,66 @@ window.saleOrderApp = function saleOrderApp(){
 
     // >>> UPDATED: ดึง SO Date วันนี้ + ขอเลข SO ถัดไปทันทีหลัง Use
     async useQuotation(q){
+      // 1) ตั้ง soDate เป็นวันนี้
       this.form.soDate = this.today();
+
+      // 2) จำ ref quotation
       this._refQuotation = { id: q.id, qNo: q.qNo };
+
+      // 3) map หัวลูกค้า
       this.form.refQuotationNo = q.qNo || "";
       this.form.customer.code       = q.customerCode || "";
       this.form.customer.firstName  = q.customerFirstName || "";
       this.form.customer.lastName   = q.customerLastName || "";
       this.form.customer.nationalId = q.customerNationalId || "";
       this.form.customer.age        = Number(q.customerAge || 0);
+
+      // 4) map รายการ
       this.form.items = (q.items||[]).map(it => {
         const qty = Number(it.qty||0), price = Number(it.unitPrice||0);
         const line = Number(it.lineTotal ?? (qty*price));
         const discount = Math.max(0, qty*price - line);
         return { service: it.itemCode||"", tooth: it.itemName||"", qty, price, discount };
       });
+
+      // 5) *** (จุดที่แก้ไข) ***
+      // แยก Note / Symptoms ที่มาจาก Quotation (q.note)
+      const dbNote = q.note || "";
+      let symptoms = "";
+      let note = "";
+      
+      // ใช้ตรรกะ "แยก" แบบเดียวกับ Quotation edit
+      if (dbNote.includes("\n---\n")) {
+        const parts = dbNote.split("\n---\n");
+        symptoms = parts[0]?.replace(/^อาการ: /, '') || ""; // เอา "อาการ: " ออก
+        note = parts[1]?.replace(/^หมายเหตุ: /, '') || ""; // เอา "หมายเหตุ: " ออก
+      } else if (dbNote.startsWith("อาการ: ")) {
+        symptoms = dbNote.replace(/^อาการ: /, '');
+      } else if (dbNote.startsWith("หมายเหตุ: ")) {
+        note = dbNote.replace(/^หมายเหตุ: /, '');
+      } else {
+        note = dbNote; // ถ้าเป็นข้อมูลเก่า หรือไม่ตรงแพทเทิร์น ให้ใส่ใน note
+      }
+
+      // เติมข้อมูลลงในฟอร์ม Sale Order
+      this.form.symptoms = symptoms;
+      this.form.noteGlobal = note;
+      this.form.doctorNote = ""; // เริ่ม doctor note ใหม่ใน SO
+
+      // 6) ล็อคหัว
       this.headerLocked = true;
+
+      // 7) โหลดเครดิต + สร้างตารางงวด
       await this.loadCredit(this.form.customer.code);
       this.buildSchedule();
+
+      // 8) ขอ "เลข SO จริง"
       await this.setNextSoNoPreview();
+
+      // 9) ปิด modal
       this.showPending = false;
     },
+    // ✅✅✅ END: แทนที่ฟังก์ชัน useQuotation() ✅✅✅
 
     // helper: ขอเลข SO ถัดไปจาก API (fallback TMP)
     async setNextSoNoPreview(){
@@ -5527,7 +5567,7 @@ window.saleOrderApp = function saleOrderApp(){
     },
     // ✅✅✅ END: แทนที่ฟังก์ชัน edit() ✅✅✅
 
-    
+
     resetForm(){
       this.headerLocked = false;
       this.editingIndex = null;
