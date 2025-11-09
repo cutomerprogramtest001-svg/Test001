@@ -5356,7 +5356,7 @@ window.saleOrderApp = function saleOrderApp(){
     },
     printReceipt(i){ alert('ตัวอย่างพิมพ์ใบเสร็จ (front-end)'); },
 
-    // ===== Save =====
+// ===== Save =====
     canSave(){
       return !!this.form.customer.code && this.form.items.length>0 && this.netTotal()>0;
     },
@@ -5398,13 +5398,12 @@ window.saleOrderApp = function saleOrderApp(){
           refQuotationNo: this.form.refQuotationNo || null
         };
 
-        // ✅ แก้ไข: ใช้ this.api()
         const j = await this.api(`/api/sales/orders`, {
           method: "POST",
-          body: payload // body จะถูก stringify โดยอัตโนมัติ
+          body: payload
         });
 
-        if (j.error) { alert(j.error); return; } // (api() จะ throw error ถ้า network fail)
+        if (j.error) { alert(j.error); return; }
 
         this.form.soNo = j.soNo || this.form.soNo || '(New)';
         this.form.soDate = this.form.soDate || this.today();
@@ -5422,17 +5421,21 @@ window.saleOrderApp = function saleOrderApp(){
           refQuotationNo: this.form.refQuotationNo || ""
         });
 
-        // ทำให้ Quotation หลุดจาก Pending
+        // ✅✅✅ START: นี่คือจุดที่แก้ไข ✅✅✅
+        // ทำให้ Quotation หลุดจาก Pending (โดยเปลี่ยนสถานะเป็น "SO Created")
         try {
           if (this._refQuotation?.id != null) {
-            // ✅ แก้ไข: ใช้ this.api()
+            
             await this.api(`/api/sales/quotations/${this._refQuotation.id}`, {
               method: "PATCH",
-              body: { confirmed: false }
+              body: { status: "SO Created" } // <-- เปลี่ยนจาก { confirmed: false }
             });
+            
             this.pendingRows = (this.pendingRows || []).filter(x => x.qNo !== this._refQuotation.qNo);
           }
         } catch(e) { console.warn("soft-close quotation failed:", e); }
+        // ✅✅✅ END: นี่คือจุดที่แก้ไข ✅✅✅
+        
         this._refQuotation = null;
 
         alert(`Saved SO: ${this.form.soNo}`);
