@@ -565,72 +565,65 @@ export const onRequest = async (ctx) => {
 
     if ((method === "PUT" || method === "PATCH") && idFromPath) {
       const body  = await readBody();
-      const cust  = parseCustomer(body.customer);
-      
-      // --- ✅✅✅ START: โค้ดที่แก้ไข (ตรรกะใหม่) ✅✅✅ ---
-      
-      let items = undefined;
-      let totalBefore = undefined;
-      let discount = undefined;
-      let grandTotal = undefined;
 
-      // 1. ตรวจสอบว่า Frontend ส่ง "items" มาใน body หรือไม่
-      if (body.items !== undefined) {
-        // ถ้าใช่ (เช่น กด Save) ให้ Parse และคำนวณยอดรวมใหม่
-        items = parseItems(body.items);
-        totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
-        discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
-        grandTotal  = +(totalBefore - discount).toFixed(2);
-      }
-      // (ถ้า body.items เป็น undefined = Frontend ไม่ได้ส่งมา (เช่น กด Confirm)
-      // เราก็จะปล่อยให้ตัวแปร 4 ตัวบนเป็น undefined)
-      
-      // --- ตรรกะ Status (อันนี้ถูกต้องอยู่แล้ว) ---
-      let newStatus;
+      // ✅✅✅ START: ตรรกะใหม่ที่ฉลาดขึ้น ✅✅✅
+      // 1. สร้าง "ถัง" ว่างๆ สำหรับเก็บข้อมูลที่จะอัปเดต
+      let updData = {};
+
+      // 2. ตรวจสอบว่ามีการส่ง 'status' หรือ 'confirmed' มาหรือไม่
       if (body.status) {
-        newStatus = body.status; // รับ "SO Created"
-      } else {
-        newStatus = body.confirmed ? "Confirmed" : "Draft"; // รับจากปุ่ม Confirm
+        updData.status = body.status; // เช่น "SO Created"
+      } else if (body.confirmed !== undefined) {
+        updData.status = body.confirmed ? "Confirmed" : "Draft"; // ตรรกะเดิม
       }
 
-      // --- สร้าง Object สำหรับอัปเดต ---
-      const updObj = await addAuditOnUpdate(T_HEAD, {
-        qNo: body.qNo || null, 
-        qDate: body.qDate || null, 
-        status: newStatus,
-        customerCode: cust.code || "", 
-        customerFirstName: cust.firstName || "", 
-        customerLastName: cust.lastName || "",
-        customerNationalId: cust.nationalId || "", 
-        customerAge: Number(cust.age || 0),
+      // 3. ตรวจสอบว่ามีการส่ง 'note' มาหรือไม่
+      if (body.note !== undefined) {
+        updData.note = body.note || "";
+      }
+
+      // 4. ตรวจสอบว่าเป็นการ "Save ทับ" (ส่ง customer หรือ items มา) หรือไม่
+      if (body.customer !== undefined || body.items !== undefined) {
+        const cust = parseCustomer(body.customer);
+        const items = parseItems(body.items);
         
-        // (สำคัญมาก) ถ้า grandTotal เป็น undefined 
-        // ฟังก์ชัน buildUpdate ของคุณ (ผมหวังว่า) จะข้าม field นี้ไป
-        // ทำให้ยอดรวมเก่าไม่ถูกเขียนทับเป็น 0
-        totalBeforeDiscount: totalBefore, 
-        discount: discount, 
-        grandTotal: grandTotal, 
-        
-        note: body.note || "" // (อันนี้ถูกต้องอยู่แล้ว)
-      });
+        const totalBefore = items.reduce((s, it) => s + (Number(it.qty || 0) * Number(it.price || 0)), 0);
+        const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
+        const grandTotal  = +(totalBefore - discount).toFixed(2);
+
+        // เพิ่มข้อมูลส่วนที่เหลือทั้งหมด
+        updData.qNo = body.qNo || null;
+        updData.qDate = body.qDate || null;
+        updData.customerCode = cust.code || "";
+        updData.customerFirstName = cust.firstName || "";
+        updData.customerLastName = cust.lastName || "";
+        updData.customerNationalId = cust.nationalId || "";
+        updData.customerAge = Number(cust.age || 0);
+        updData.totalBeforeDiscount = totalBefore;
+        updData.discount = discount;
+        updData.grandTotal = grandTotal;
+      }
+      
+      // 5. ส่ง "ถัง" ที่มีข้อมูลที่จำเป็นไปสร้าง Audit
+      const updObj = await addAuditOnUpdate(T_HEAD, updData);
+      // ✅✅✅ END: ตรรกะใหม่ที่ฉลาดขึ้น ✅✅✅
       
       // --- อัปเดตตาราง Head (Quotation) ---
       const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
       const head = await db.prepare(sql).bind(...bind, idFromPath).first();
       if (!head) return err("not found", 404);
 
-      // --- อัปเดตตาราง Items (ถ้ามี items ส่งมาเท่านั้น) ---
-      if (items !== undefined) { 
-        
-        // ลบของเก่า
+      // --- อัปเดต Items (ถ้ามีการส่ง items มาเท่านั้น) ---
+      if (body.items !== undefined) {
+        const items = parseItems(body.items); // Parse อีกครั้ง (ปลอดภัย)
         await db.prepare(`DELETE FROM ${T_ITEMS} WHERE qNo=?`).bind(head.qNo).run();
         
-        // เพิ่มของใหม่ (ถ้ามี)
         if (items.length) {
           const ins = db.prepare(`
             INSERT INTO ${T_ITEMS}
               (qNo, itemCode, itemName, qty, unitPrice, lineTotal, CreateDate)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+            VALUES
+              (?,   ?,        ?,        ?,   ?,         ?,         datetime('now'))
           `);
           for (const it of items) {
             const qty  = Number(it.qty || 0);
@@ -641,10 +634,10 @@ export const onRequest = async (ctx) => {
           }
         }
       }
-      // --- ✅✅✅ END: โค้ดที่แก้ไข ✅✅✅ ---
 
       return send(head);
     }
+
 
     if (method === "DELETE" && idFromPath) {
       const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
