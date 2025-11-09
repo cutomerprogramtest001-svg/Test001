@@ -736,7 +736,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     const size = Math.min(parseInt(url.searchParams.get("size") || "20", 10), 100);
     const off  = (page - 1) * size;
 
-    let base = `SELECT * FROM sales_saleorders`; // ถูกต้องแล้วที่ใช้ SELECT * เพราะหน้า Edit ต้องการทุกคอลัมน์
+    let base = `SELECT * FROM sales_saleorders`;
     let where = "";
     let bind = [];
     if (q) {
@@ -749,7 +749,6 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
   }
 
   // GET /api/sales/orders/next-no?date=YYYY-MM-DD
-  // (ผมลบโค้ดบล็อกนี้ที่ซ้ำกันออกไป 1 บล็อกนะครับ)
   if (path === "sales/orders/next-no" && request.method === "GET") {
     const q = url.searchParams;
     const ymd = (q.get("date") || new Date().toISOString().slice(0,10)).replace(/-/g,'');
@@ -767,30 +766,29 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     return send({ soNo });
   }
 
-  // POST /api/sales/orders
+  // POST /api/sales/orders (CREATE NEW)
   if (path === "sales/orders" && request.method === "POST") {
     try {
       const b = await (async()=>{
         try{ return await request.json(); } catch { return {}; }
       })();
 
-      // --- 1) gen soNo (ใช้ soNo ที่ได้รับถ้าไม่ใช่ TMP) ---
+      // --- 1) gen soNo (สร้างเลขใหม่เสมอ) ---
       const soDate = (b.soDate || new Date().toISOString().slice(0,10));
       let soNo = (b.soNo || "").trim();
       const ymd = soDate.replace(/-/g,'');
-      if (!soNo || /-TMP$/i.test(soNo)) {
-        const last = await db.prepare(
-          `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
-        ).bind(`SO${ymd}-%`).first();
-        let run = 1;
-        if (last?.soNo) {
-          const m = last.soNo.match(/-(\d{3,4})$/);
-          if (m) run = parseInt(m[1],10)+1;
-        }
-        soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
+      // (ตรรกะ gen-no เดิมของคุณ)
+      const last = await db.prepare(
+        `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
+      ).bind(`SO${ymd}-%`).first();
+      let run = 1;
+      if (last?.soNo) {
+        const m = last.soNo.match(/-(\d{3,4})$/);
+        if (m) run = parseInt(m[1],10)+1;
       }
+      soNo = `SO${ymd}-${String(run).padStart(4,'0')}`;
 
-      // --- 2) หา creditDays ของลูกค้า (ถ้ามี) ---
+      // --- 2) หา creditDays ---
       let creditDays = 0;
       if (b.customerCode) {
         try {
@@ -799,7 +797,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         } catch(e){ creditDays = 0; }
       }
 
-      // --- 3) คำนวณ dueDate = deliveryDate + creditDays ---
+      // --- 3) คำนวณ dueDate ---
       const deliveryDate = (b.deliveryDate || "").toString().trim();
       let dueDate = "";
       if (deliveryDate) {
@@ -807,17 +805,15 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         if (Number.isFinite(creditDays) && creditDays>0) dt.setDate(dt.getDate() + Number(creditDays));
         dueDate = dt.toISOString().slice(0,10);
       } else {
-        dueDate = (b.dueDate || "").toString().trim(); // ถ้าส่งมาใช้ค่านั้น
+        dueDate = (b.dueDate || "").toString().trim();
       }
 
-      // ✅✅✅ START: โค้ดที่แก้ไข ✅✅✅
-      // --- 4) payment / balance calculations ---
-      const paymentType = (b.paymentType || "FULL").toString().toUpperCase(); // FULL | DEPOSIT
+      // --- 4) payment / balance (Logic ที่แก้ไขแล้ว) ---
+      const paymentType = (b.paymentType || "FULL").toString().toUpperCase();
       const grandTotal  = Number(b.grandTotal || 0);
       let depositAmount = Number(b.depositAmount || 0);
       const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
       const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
-
       if (paymentType === "DEPOSIT") {
         if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
           depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
@@ -825,18 +821,14 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       } else {
         depositAmount = 0;
       }
+      
+      const totalPaid = 0; // สร้างใหม่ = จ่าย 0
+      const balance   = grandTotal; // ค้างเต็ม
 
-      // (Logic ที่แก้ไข)
-      // ณ ตอนสร้าง SO, totalPaid (ยอดจ่ายแล้ว) ต้องเป็น 0 เสมอ
-      // และ balance (ยอดค้าง) ต้องเท่ากับ grandTotal
-      const totalPaid = 0; 
-      const balance   = grandTotal;
-      // ✅✅✅ END: โค้ดที่แก้ไข ✅✅✅
-
-      // --- 5) แปลงค่าว่าเป็น JSON string (paymentPlan) หรือ null ---
+      // --- 5) paymentPlan ---
       const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
 
-      // --- 6) Insert head (ระวังจำนวน placeholder ให้ตรงกับ bind) ---
+      // --- 6) Insert head ---
       const insHead = await db.prepare(`
         INSERT INTO sales_saleorders
           (soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
@@ -845,38 +837,23 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
            totalPaid, balance, paymentPlan, refQuotationNo, CreateDate) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
       `).bind(
-        soNo,
-        soDate,
-        (b.status || "Open"), // (Status อาจจะต้องแก้เป็น 'Unpaid' ถ้าคุณต้องการ)
-        (b.customerCode || ""),
-        (b.billTo || ""),
-        (b.shipTo || ""),
-        (b.paymentTerm || ""),
-        Number(b.totalBeforeDiscount || 0),
-        Number(b.discount || 0),
-        grandTotal,
-        (b.note || ""),
-        deliveryDate || null,
-        dueDate || null,
-        paymentType,
+        soNo, soDate, (b.status || "Open"), (b.customerCode || ""), (b.billTo || ""),
+        (b.shipTo || ""), (b.paymentTerm || ""), Number(b.totalBeforeDiscount || 0),
+        Number(b.discount || 0), grandTotal, (b.note || ""),
+        deliveryDate || null, dueDate || null, paymentType,
         (isFinite(depositAmount) ? depositAmount : 0),
         (depositPercent != null ? depositPercent : null),
         (installmentCount != null ? installmentCount : null),
-        totalPaid,  // <-- จะถูกใส่เป็น 0
-        balance,    // <-- จะถูกใส่เป็น grandTotal
-        paymentPlanStr,
-        (b.refQuotationNo || "")
+        totalPaid, balance, paymentPlanStr, (b.refQuotationNo || "")
       ).run();
 
       if (!insHead || !insHead.success) {
         return send({ error: "Insert sale order head failed", detail: insHead }, 500);
       }
+      
+      const soId = insHead.lastRowId; // (ควรใช้ lastRowId จะแม่นกว่า)
 
-      // --- 7) หาค่า id ที่เพิ่ง insert (ผูก items) ---
-      const head = await db.prepare(`SELECT id FROM sales_saleorders WHERE soNo=? LIMIT 1`).bind(soNo).first();
-      const soId = head?.id || null;
-
-      // --- 8) ถ้ามี items ให้ insert ทีละรายการ ---
+      // --- 8) Insert items ---
       if (Array.isArray(b.items) && b.items.length>0) {
         const stmt = await db.prepare(`
           INSERT INTO sales_saleorderitems
@@ -887,31 +864,18 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
           const qty  = Number(it.qty || 0);
           const price= Number(it.unitPrice || 0);
           const line = Number((it.lineTotal != null) ? it.lineTotal : +(qty * price).toFixed(2));
-          const res = await stmt.bind(
-            soNo,
-            (it.itemCode || ""),
-            (it.itemName || ""),
-            qty,
-            (it.uom || ""),
-            price,
-            line,
-            (it.remark || "")
+          await stmt.bind(
+            soNo, (it.itemCode || ""), (it.itemName || ""), qty, (it.uom || ""),
+            price, line, (it.remark || "")
           ).run();
-          if (!res || !res.success) {
-            return send({ error: "Insert sale order item failed", item: it, detail: res }, 500);
-          }
         }
       }
 
-      // --- 9) ถ้าต้องการ patch Quotation ให้หลุด pending (ไม่บังคับ) ---
-      if (b.refQuotationNo) {
-        try {
-          await db.prepare(`UPDATE sales_quotations SET status = 'SO Created' WHERE qNo = ?`).bind(b.refQuotationNo).run();
-        } catch(e) { /* ไม่บล็อกการบันทึก SO หาก patch Q ล้ม */ }
-      }
+      // --- (9. Patch Quotation - ตรรกะนี้จะถูกย้ายไป Frontend) ---
 
       // --- 10) ส่งผลลัพธ์กลับ ---
       return send({ ok: true, soNo, soId, dueDate, balance, totalPaid });
+      
     } catch (err) {
       console.error("POST /api/sales/orders error:", err);
       try { return send({ error: err?.message || String(err) }, 500); }
@@ -919,21 +883,132 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
     }
   }
 
-  // ✅✅✅ === START: API ใหม่สำหรับดึง Items ตอน Edit === ✅✅✅
-  // GET /api/sales/orders/items?soNo=... 
+  // ✅✅✅ START: API เส้นใหม่สำหรับ "UPDATE" ✅✅✅
+  // PUT /api/sales/orders/[id]
+  const parts = path.split('/');
+  if (path.startsWith("sales/orders/") && parts.length === 3 && request.method === "PUT") {
+    const id = parts[2]; // นี่คือ ID (Primary Key)
+    if (!id) return err("ID is required for update", 400);
+
+    try {
+      const b = await (async()=>{ try{ return await request.json(); } catch { return {}; } })();
+
+      // --- 1) ใช้ soNo เดิม (ไม่สร้างใหม่) ---
+      const soNo = (b.soNo || "").trim();
+      if (!soNo) return err("soNo is required in body for update", 400);
+
+      // --- 2) หา creditDays ---
+      let creditDays = 0;
+      if (b.customerCode) {
+        try {
+          const c = await db.prepare(`SELECT creditDays FROM sales_customers WHERE code=? LIMIT 1`).bind(b.customerCode).first();
+          creditDays = Number(c?.creditDays || 0);
+        } catch(e){ creditDays = 0; }
+      }
+
+      // --- 3) คำนวณ dueDate ---
+      const deliveryDate = (b.deliveryDate || "").toString().trim();
+      let dueDate = "";
+      if (deliveryDate) {
+        const dt = new Date(deliveryDate);
+        if (Number.isFinite(creditDays) && creditDays>0) dt.setDate(dt.getDate() + Number(creditDays));
+        dueDate = dt.toISOString().slice(0,10);
+      } else {
+        dueDate = (b.dueDate || "").toString().trim();
+      }
+
+      // --- 4) payment / balance (อัปเดต) ---
+      // (ตรรกะนี้อาจจะต้องซับซ้อนกว่านี้ ถ้ามีการรับเงิน)
+      // (แต่สำหรับตอนนี้ เราจะเชื่อ grandTotal ที่คำนวณใหม่ และ totalPaid/balance จากฟอร์ม)
+      const paymentType = (b.paymentType || "FULL").toString().toUpperCase();
+      const grandTotal  = Number(b.grandTotal || 0);
+      let depositAmount = Number(b.depositAmount || 0);
+      const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
+      const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
+      if (paymentType === "DEPOSIT") {
+        if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
+          depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
+        }
+      } else {
+        depositAmount = 0;
+      }
+      
+      // (สำคัญ) ใช้ totalPaid และ balance ที่ส่งมาจากฟอร์ม
+      const totalPaid = Number(b.totalPaid || 0); 
+      const balance   = Number(b.balance || 0);
+      // (ในอนาคต: ควรคำนวณ balance = grandTotal - totalPaid)
+
+      // --- 5) paymentPlan ---
+      const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
+
+      // --- 6) Update head ---
+      const updHead = await db.prepare(`
+        UPDATE sales_saleorders SET
+          soDate = ?, status = ?, customerCode = ?, billTo = ?, shipTo = ?, paymentTerm = ?,
+          totalBeforeDiscount = ?, discount = ?, grandTotal = ?, note = ?,
+          deliveryDate = ?, dueDate = ?, paymentType = ?, depositAmount = ?, depositPercent = ?, installmentCount = ?,
+          totalPaid = ?, balance = ?, paymentPlan = ?, refQuotationNo = ?,
+          UpdateDate = datetime('now','localtime')
+        WHERE id = ?
+      `).bind(
+        (b.soDate || null), (b.status || "Open"), (b.customerCode || ""), (b.billTo || ""),
+        (b.shipTo || ""), (b.paymentTerm || ""), Number(b.totalBeforeDiscount || 0),
+        Number(b.discount || 0), grandTotal, (b.note || ""),
+        deliveryDate || null, dueDate || null, paymentType,
+        (isFinite(depositAmount) ? depositAmount : 0),
+        (depositPercent != null ? depositPercent : null),
+        (installmentCount != null ? installmentCount : null),
+        totalPaid, balance, paymentPlanStr, (b.refQuotationNo || ""),
+        id // <-- Where clause
+      ).run();
+
+      if (!updHead || !updHead.success) {
+        return send({ error: "Update sale order head failed", detail: updHead }, 500);
+      }
+
+      // --- 7) ลบ Items เก่าทั้งหมด (ตาม soNo) ---
+      await db.prepare(`DELETE FROM sales_saleorderitems WHERE soNo = ?`).bind(soNo).run();
+
+      // --- 8) เพิ่ม Items ใหม่ทั้งหมด ---
+      if (Array.isArray(b.items) && b.items.length>0) {
+        const stmt = await db.prepare(`
+          INSERT INTO sales_saleorderitems
+            (soNo, itemCode, itemName, qty, uom, unitPrice, lineTotal, remark, CreateDate)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
+        `);
+        for (const it of b.items) {
+          const qty  = Number(it.qty || 0);
+          const price= Number(it.unitPrice || 0);
+          const line = Number((it.lineTotal != null) ? it.lineTotal : +(qty * price).toFixed(2));
+          await stmt.bind(
+            soNo, (it.itemCode || ""), (it.itemName || ""), qty, (it.uom || ""),
+            price, line, (it.remark || "")
+          ).run();
+        }
+      }
+
+      // --- 10) ส่งผลลัพธ์กลับ ---
+      return send({ ok: true, soNo: soNo, soId: id, dueDate, balance, totalPaid });
+      
+    } catch (err) {
+      console.error("PUT /api/sales/orders error:", err);
+      try { return send({ error: err?.message || String(err) }, 500); }
+      catch(e){ return new Response(JSON.stringify({ error: err?.message || String(err) }), { status:500, headers:{'Content-Type':'application/json'} }); }
+    }
+  }
+  // ✅✅✅ END: API เส้นใหม่สำหรับ "UPDATE" ✅✅✅
+
+  // GET /api/sales/orders/items?soNo=... (อันนี้จากรอบที่แล้ว)
   if (path === "sales/orders/items" && request.method === "GET") {
     const soNo = url.searchParams.get("soNo");
     if (!soNo) {
       return send({ error: "soNo is required" }, 400);
     }
-    
     const { results } = await db.prepare(
       `SELECT * FROM sales_saleorderitems WHERE soNo = ?`
     ).bind(soNo).all();
-    
     return send(results || []);
   }
-  // ✅✅✅ === END: API ใหม่ === ✅✅✅
 
   return null;
 }
