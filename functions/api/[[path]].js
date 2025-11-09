@@ -777,7 +777,6 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       const soDate = (b.soDate || new Date().toISOString().slice(0,10));
       let soNo = (b.soNo || "").trim();
       const ymd = soDate.replace(/-/g,'');
-      // (ตรรกะ gen-no เดิมของคุณ)
       const last = await db.prepare(
         `SELECT soNo FROM sales_saleorders WHERE soNo LIKE ? ORDER BY id DESC LIMIT 1`
       ).bind(`SO${ymd}-%`).first();
@@ -815,7 +814,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       const depositPercent = b.depositPercent != null ? Number(b.depositPercent) : null;
       const installmentCount = b.installmentCount != null ? Number(b.installmentCount) : (Array.isArray(b.paymentPlan?.schedule) ? b.paymentPlan.schedule.length : null);
       if (paymentType === "DEPOSIT") {
-        if ((depositAmount||0) <= 0 && (depositPercent||0) > 0) {
+        if ((depositAmount||0) <= 0 && (percent||0) > 0) {
           depositAmount = +(grandTotal * depositPercent / 100).toFixed(2);
         }
       } else {
@@ -837,7 +836,10 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
            totalPaid, balance, paymentPlan, refQuotationNo, CreateDate) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
       `).bind(
-        soNo, soDate, (b.status || "Open"), (b.customerCode || ""), (b.billTo || ""),
+        soNo, soDate, 
+        // ✅ (สำคัญ) บังคับสถานะ "Unpaid" ตอนสร้างเสมอ
+        "Unpaid", 
+        (b.customerCode || ""), (b.billTo || ""),
         (b.shipTo || ""), (b.paymentTerm || ""), Number(b.totalBeforeDiscount || 0),
         Number(b.discount || 0), grandTotal, (b.note || ""),
         deliveryDate || null, dueDate || null, paymentType,
@@ -851,7 +853,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         return send({ error: "Insert sale order head failed", detail: insHead }, 500);
       }
       
-      const soId = insHead.lastRowId; // (ควรใช้ lastRowId จะแม่นกว่า)
+      const soId = insHead.lastRowId;
 
       // --- 8) Insert items ---
       if (Array.isArray(b.items) && b.items.length>0) {
@@ -871,10 +873,8 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         }
       }
 
-      // --- (9. Patch Quotation - ตรรกะนี้จะถูกย้ายไป Frontend) ---
-
       // --- 10) ส่งผลลัพธ์กลับ ---
-      return send({ ok: true, soNo, soId, dueDate, balance, totalPaid });
+      return send({ ok: true, soNo, soId, dueDate, balance, totalPaid, status: "Unpaid" });
       
     } catch (err) {
       console.error("POST /api/sales/orders error:", err);
