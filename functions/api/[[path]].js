@@ -112,7 +112,7 @@ export const onRequest = async (ctx) => {
     const r = await saleOrdersRouter({ request, url, path, db, send, err });
     if (r) return r;
   }
-  
+
   {
     const r = await saleCustomersRouter({ request, url, path, db, send, err });
     if (r) return r;
@@ -572,12 +572,26 @@ export const onRequest = async (ctx) => {
       const discount    = items.reduce((s, it) => s + Number(it.discount || 0), 0);
       const grandTotal  = +(totalBefore - discount).toFixed(2);
 
+      // ✅✅✅ START: ตรรกะใหม่สำหรับ Status ✅✅✅
+      let newStatus;
+      if (body.status) {
+        // 1. ถ้า Frontend ส่ง "status" มา (เช่น "SO Created") ให้ใช้ค่านั้น
+        newStatus = body.status;
+      } else {
+        // 2. มิฉะนั้น ให้ใช้ตรรกะ "confirmed" แบบเดิม (สำหรับปุ่ม Confirm/Unconfirm)
+        newStatus = body.confirmed ? "Confirmed" : "Draft";
+      }
+      // ✅✅✅ END: ตรรกGกะใหม่สำหรับ Status ✅✅✅
+
       const updObj = await addAuditOnUpdate(T_HEAD, {
-        qNo: body.qNo || null, qDate: body.qDate || null, status: body.confirmed ? "Confirmed" : "Draft",
+        qNo: body.qNo || null, qDate: body.qDate || null, 
+        status: newStatus, // <-- 3. ใช้ newStatus ที่นี่
         customerCode: cust.code || "", customerFirstName: cust.firstName || "", customerLastName: cust.lastName || "",
         customerNationalId: cust.nationalId || "", customerAge: Number(cust.age || 0),
-        totalBeforeDiscount: totalBefore, discount, grandTotal, note: body.note || ""
+        totalBeforeDiscount: totalBefore, discount, grandTotal, 
+        note: body.note || ""
       });
+      
       const { sql, bind } = buildUpdate(T_HEAD, updObj, headPK);
       const head = await db.prepare(sql).bind(...bind, idFromPath).first();
       if (!head) return err("not found", 404);
@@ -600,6 +614,7 @@ export const onRequest = async (ctx) => {
       }
       return send(head);
     }
+
 
     if (method === "DELETE" && idFromPath) {
       const head = await db.prepare(`DELETE FROM ${T_HEAD} WHERE ${headPK}=? RETURNING *`).bind(idFromPath).first();
