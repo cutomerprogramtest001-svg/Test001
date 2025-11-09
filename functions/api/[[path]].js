@@ -810,6 +810,7 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         dueDate = (b.dueDate || "").toString().trim(); // ถ้าส่งมาใช้ค่านั้น
       }
 
+      // ✅✅✅ START: โค้ดที่แก้ไข ✅✅✅
       // --- 4) payment / balance calculations ---
       const paymentType = (b.paymentType || "FULL").toString().toUpperCase(); // FULL | DEPOSIT
       const grandTotal  = Number(b.grandTotal || 0);
@@ -824,27 +825,29 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       } else {
         depositAmount = 0;
       }
-      const totalPaid = (paymentType === "FULL") ? grandTotal : depositAmount;
-      const balance   = Math.max(0, +(grandTotal - totalPaid).toFixed(2));
+
+      // (Logic ที่แก้ไข)
+      // ณ ตอนสร้าง SO, totalPaid (ยอดจ่ายแล้ว) ต้องเป็น 0 เสมอ
+      // และ balance (ยอดค้าง) ต้องเท่ากับ grandTotal
+      const totalPaid = 0; 
+      const balance   = grandTotal;
+      // ✅✅✅ END: โค้ดที่แก้ไข ✅✅✅
 
       // --- 5) แปลงค่าว่าเป็น JSON string (paymentPlan) หรือ null ---
       const paymentPlanStr = b.paymentPlan ? JSON.stringify(b.paymentPlan) : null;
 
       // --- 6) Insert head (ระวังจำนวน placeholder ให้ตรงกับ bind) ---
-      // ✅✅✅ === START: โค้ดที่แก้ไข === ✅✅✅
       const insHead = await db.prepare(`
         INSERT INTO sales_saleorders
           (soNo, soDate, status, customerCode, billTo, shipTo, paymentTerm,
            totalBeforeDiscount, discount, grandTotal, note,
            deliveryDate, dueDate, paymentType, depositAmount, depositPercent, installmentCount,
            totalPaid, balance, paymentPlan, refQuotationNo, CreateDate) 
-           /* 1. เพิ่ม refQuotationNo ที่นี่ */
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now','localtime'))
-               /* 2. เพิ่ม ? อีกหนึ่งตัวที่นี่ */
       `).bind(
         soNo,
         soDate,
-        (b.status || "Open"),
+        (b.status || "Open"), // (Status อาจจะต้องแก้เป็น 'Unpaid' ถ้าคุณต้องการ)
         (b.customerCode || ""),
         (b.billTo || ""),
         (b.shipTo || ""),
@@ -859,12 +862,11 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
         (isFinite(depositAmount) ? depositAmount : 0),
         (depositPercent != null ? depositPercent : null),
         (installmentCount != null ? installmentCount : null),
-        totalPaid,
-        balance,
+        totalPaid,  // <-- จะถูกใส่เป็น 0
+        balance,    // <-- จะถูกใส่เป็น grandTotal
         paymentPlanStr,
-        (b.refQuotationNo || "") /* <-- 3. เพิ่ม (b.refQuotationNo || "") ที่นี่ */
+        (b.refQuotationNo || "")
       ).run();
-      // ✅✅✅ === END: โค้ดที่แก้ไข === ✅✅✅
 
       if (!insHead || !insHead.success) {
         return send({ error: "Insert sale order head failed", detail: insHead }, 500);
@@ -904,16 +906,14 @@ async function saleOrdersRouter({ request, url, path, db, send, err }) {
       // --- 9) ถ้าต้องการ patch Quotation ให้หลุด pending (ไม่บังคับ) ---
       if (b.refQuotationNo) {
         try {
-          // ถ้า table/endpoint ใช้ id มากกว่า qNo ให้ปรับโค้ดนี้
-          await db.prepare(`UPDATE sales_quotations SET confirmed = 0 WHERE qNo = ?`).bind(b.refQuotationNo).run();
+          await db.prepare(`UPDATE sales_quotations SET status = 'SO Created' WHERE qNo = ?`).bind(b.refQuotationNo).run();
         } catch(e) { /* ไม่บล็อกการบันทึก SO หาก patch Q ล้ม */ }
       }
 
       // --- 10) ส่งผลลัพธ์กลับ ---
-      return send({ ok: true, soNo, soId, dueDate, balance });
+      return send({ ok: true, soNo, soId, dueDate, balance, totalPaid });
     } catch (err) {
       console.error("POST /api/sales/orders error:", err);
-      // ถ้ามีฟังก์ชัน send ให้ใช้ ถ้าไม่มีกลับ Response ธรรมดา
       try { return send({ error: err?.message || String(err) }, 500); }
       catch(e){ return new Response(JSON.stringify({ error: err?.message || String(err) }), { status:500, headers:{'Content-Type':'application/json'} }); }
     }
